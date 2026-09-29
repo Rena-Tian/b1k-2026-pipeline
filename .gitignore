@@ -1,0 +1,10 @@
+*.log
+__pycache__/
+*.egg-info/
+.venv/
+outputs/
+wandb/
+.netrc*
+*.pem
+*_key
+*_key.pub

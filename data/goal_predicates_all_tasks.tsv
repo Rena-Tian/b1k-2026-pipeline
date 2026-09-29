@@ -1,0 +1,100 @@
+0	turning_on_radio	2150	1	1	1	{'toggled_on': 1}
+1	picking_up_trash	5268	3	3	1	{'inside': 3}
+2	putting_away_Halloween_decorations	13788	8	6	64	{'inside': 5, 'nextto': 1, 'not open': 2}
+3	cleaning_up_plates_and_food	13696	8	6	8	{'ontop': 2, 'inside': 4, 'not open': 2}
+4	can_meat	11847	9	4	36	{'inside': 6, 'not open': 3}
+5	setting_mousetraps	10196	6	6	384	{'ontop': 4, 'under': 2}
+6	hiding_Easter_eggs	7620	9	9	2	{'nextto': 3, 'not inside': 3, 'ontop': 3}
+7	picking_up_toys	18891	6	6	1	{'inside': 6}
+8	rearranging_kitchen_furniture	8943	4	3	2	{'inside': 3, 'not open': 1}
+9	putting_up_Christmas_decorations_inside	13719	9	9	3888	{'nextto': 3, 'ontop': 6}
+10	set_up_a_coffee_station_in_your_kitchen	6266	6	5	1	{'ontop': 3, 'nextto': 3}
+11	putting_dishes_away_after_cleaning	10953	10	8	2	{'inside': 8, 'not open': 2}
+12	preparing_lunch_box	8245	6	5	1	{'inside': 5, 'not open': 1}
+13	loading_the_car	19226	3	3	1	{'inside': 3}
+14	carrying_in_groceries	14275	4	3	2	{'inside': 2, 'not open': 2}
+15	bringing_in_wood	13536	3	3	1	{'ontop': 3}
+16	moving_boxes_to_storage	14596	2	2	2	{'ontop': 2}
+17	bringing_water	9439	3	2	1	{'ontop': 2, 'not open': 1}
+18	tidying_bedroom	11037	3	3	2	{'nextto': 2, 'ontop': 1}
+19	outfit_a_basic_toolbox	10638	7	5	1	{'inside': 5, 'ontop': 1, 'not open': 1}
+20	sorting_vegetables	11904	13	13	27	{'inside': 13}
+21	collecting_childrens_toys	19186	7	7	2	{'inside': 7}
+22	putting_shoes_on_rack	7726	10	6	1	{'touching': 4, 'not touching': 4, 'nextto': 2}
+23	boxing_books_up_for_storage	24228	6	6	1	{'inside': 6}
+24	storing_food	19869	8	8	256	{'inside': 8}
+25	clearing_food_from_table_into_fridge	13068	5	4	4	{'inside': 4, 'not open': 1}
+26	assembling_gift_baskets	26060	16	16	331776	{'inside': 16}
+27	sorting_household_items	15808	8	7	1	{'under': 2, 'nextto': 2, 'ontop': 3, 'inside': 1}
+28	getting_organized_for_work	15671	10	7	1	{'nextto': 4, 'ontop': 5, 'under': 1}
+29	clean_up_your_desk	21418	11	10	1	{'inside': 7, 'ontop': 3, 'not open': 1}
+30	setting_the_fire	9118	8	7	1	{'on_fire': 3, 'ontop': 2, 'inside': 2, 'not toggled_on': 1}
+31	clean_boxing_gloves	8235	2	2	1	{'not covered': 2}
+32	wash_a_baseball_cap	8349	2	2	1	{'not covered': 2}
+33	wash_dog_toys	11223	6	4	1	{'not covered': 6}
+34	hanging_pictures	2387	1	1	2	{'attached': 1}
+35	attach_a_camera_to_a_tripod	3912	1	1	1	{'attached': 1}
+36	clean_a_patio	12071	1	1	1	{'not covered': 1}
+37	clean_a_trumpet	5307	1	1	1	{'not covered': 1}
+38	spraying_for_bugs	6479	2	2	1	{'covered': 2}
+39	spraying_fruit_trees	8346	2	2	1	{'covered': 2}
+40	make_microwave_popcorn	3238	2	2	1	{'real': 1, 'contains': 1}
+41	cook_cabbage	14145	4	4	1	{'real': 2, 'contains': 2}
+42	chop_an_onion	6400	4	4	1	{'real': 1, 'inside': 2, 'contains': 1}
+43	slicing_vegetables	14845	9	3	1	{'real': 3, 'not open': 1, 'not real': 5}
+44	chopping_wood	10752	8	8	1	{'real': 8}
+45	cook_hot_dogs	9145	2	2	1	{'cooked': 2}
+46	cook_bacon	7680	7	6	1	{'cooked': 6, 'not open': 1}
+47	freeze_pies	12455	7	6	2	{'inside': 4, 'frozen': 2, 'not open': 1}
+48	canning_food	22975	10	4	4	{'real': 2, 'filled': 2, 'not contains': 2, 'inside': 2, 'not open': 2}
+49	make_pizza	19187	2	2	1	{'real': 1, 'ontop': 1}
+50	freeze_fruit	12619	7	6	4	{'inside': 6, 'not open': 1}
+51	cook_a_brisket	7335	3	2	1	{'cooked': 1, 'ontop': 2}
+52	sorting_bottles_cans_and_paper	10264	16	6	6	{'inside': 6, 'not inside': 10}
+53	tidying_living_room	12566	4	4	1	{'ontop': 3, 'inside': 1}
+54	putting_away_toys	11297	8	8	256	{'inside': 8}
+55	re_shelving_library_books	9528	3	3	1	{'inside': 3}
+56	make_rose_centerpieces	4532	4	4	1	{'inside': 3, 'ontop': 1}
+57	sweeping_garage	4473	2	2	1	{'not covered': 2}
+58	stacking_wood	15939	6	6	46656	{'touching': 6}
+59	organizing_art_supplies	6194	5	5	1	{'inside': 4, 'ontop': 1}
+60	scrubbing_bathroom_floor	3154	1	1	1	{'not covered': 1}
+61	bringing_paper_to_recycling	11214	3	2	1	{'inside': 2, 'not open': 1}
+62	halve_an_egg	6377	5	5	1	{'real': 2, 'ontop': 2, 'inside': 1}
+63	installing_smoke_detectors	2569	1	1	1	{'attached': 1}
+64	setting_the_table	17809	8	8	8	{'ontop': 4, 'nextto': 4}
+65	unloading_the_car	11323	2	2	1	{'nextto': 2}
+66	turning_out_all_lights_before_sleep	10006	5	5	1	{'not toggled_on': 5}
+67	boxing_food_after_dinner	6698	6	5	1	{'inside': 3, 'ontop': 2, 'not open': 1}
+68	cleaning_up_branches_and_twigs	12527	5	4	1	{'inside': 4, 'ontop': 1}
+69	vacuuming_floors	2412	1	1	1	{'not covered': 1}
+70	thawing_frozen_food	8230	9	7	4	{'not frozen': 2, 'ontop': 3, 'inside': 1, 'toggled_on': 1, 'not open': 2}
+71	clean_your_rusty_garden_tools	15158	5	4	1	{'not covered': 2, 'inside': 2, 'not open': 1}
+72	cook_a_frozen_pie	8668	2	2	1	{'ontop': 1, 'cooked': 1}
+73	organizing_school_stuff	14592	6	6	1	{'inside': 5, 'ontop': 1}
+74	carrying_out_garden_furniture	11059	2	2	1	{'ontop': 2}
+75	put_together_a_basic_pruning_kit	11264	4	2	1	{'ontop': 1, 'inside': 2, 'not open': 1}
+76	dispose_of_glass	9195	4	4	1	{'inside': 4}
+77	installing_a_modem	2413	4	4	2	{'toggled_on': 1, 'nextto': 1, 'ontop': 2}
+78	make_cabinet_doors	3443	1	1	1	{'attached': 1}
+79	polishing_shoes	10738	6	5	2	{'ontop': 1, 'not covered': 2, 'nextto': 3}
+80	clean_up_broken_glass	8691	3	3	1	{'inside': 3}
+81	packing_meal_for_delivery	8860	6	6	6	{'inside': 3, 'ontop': 3}
+82	store_batteries	7704	3	3	2	{'inside': 3}
+83	store_honey	6767	1	1	1	{'inside': 1}
+84	tidying_bathroom	13003	4	4	1	{'ontop': 3, 'inside': 1}
+85	putting_dirty_dishes_in_sink	12149	4	4	1	{'inside': 4}
+86	make_gift_bags_for_baby_showers	9651	6	6	4	{'ontop': 2, 'inside': 4}
+87	collecting_aluminum_cans	10203	6	6	1	{'inside': 6}
+88	rearrange_your_room	12855	3	3	2	{'ontop': 3}
+89	installing_a_fax_machine	4077	2	2	2	{'toggled_on': 1, 'ontop': 1}
+90	composting_waste	3639	2	2	1	{'inside': 2}
+91	store_produce	9522	4	4	2	{'inside': 4}
+92	installing_a_scanner	4259	2	2	1	{'toggled_on': 1, 'nextto': 1}
+93	clean_a_keyboard	3876	1	1	1	{'not covered': 1}
+94	dispose_of_batteries	14428	4	3	1	{'inside': 3, 'ontop': 1}
+95	cook_brussels_sprouts	15662	26	24	1	{'real': 8, 'cooked': 8, 'inside': 8, 'not open': 2}
+96	cook_broccolini	4618	11	11	1	{'ontop': 6, 'cooked': 5}
+97	setup_a_bar_for_a_cocktail_party	13419	20	20	54	{'ontop': 8, 'nextto': 6, 'inside': 6}
+98	laying_tile_floors	14351	8	8	256	{'ontop': 4, 'nextto': 4}
+99	sorting_books_on_shelf	7739	11	7	1296	{'inside': 7, 'ontop': 4}

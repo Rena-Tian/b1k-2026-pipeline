@@ -1,0 +1,13 @@
+diff --git a/OmniGibson/omnigibson/eval/utils/network_utils.py b/OmniGibson/omnigibson/eval/utils/network_utils.py
+index 0712f8915..83ad964e9 100644
+--- a/OmniGibson/omnigibson/eval/utils/network_utils.py
++++ b/OmniGibson/omnigibson/eval/utils/network_utils.py
+@@ -91,7 +91,7 @@ class WebsocketClientPolicy:
+                     max_size=None,
+                     additional_headers=headers,
+                     ping_interval=60,
+-                    ping_timeout=300,
++                    ping_timeout=900,
+                 )
+                 metadata = unpackb(conn.recv())
+                 logger.info("Connected to server!")
