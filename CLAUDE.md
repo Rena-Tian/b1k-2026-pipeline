@@ -53,7 +53,7 @@ Sum 1.9864 -> overall **0.0199**.
    `BEHAVIOR-1K/datasets/2026-challenge-task-instances/metadata/task.jsonl`). 7.7k-step tasks scored ~0.
 4. **Tasks 0-49: use the winner's per-task checkpoint** (ckpt1-4; map below) — our top two tasks did.
    The winner's own per-task 2025 scores (`BEHAVIOR-1K/docs/challenge_submissions/standard.{public,hidden}.
-   Robot_Learning_Collective.*.json`) predict what is reachable (we kept 85% of it on task 1: 0.567 vs 0.667, both on instances 0-9).
+   Robot_Learning_Collective.*.json`) predict what is reachable (task 1: our 0.567 vs the winner's 0.667 on the 2025 public set, ~85%).
    Winner map: ckpt1 = 2,3,5,6,10,11,13,14,15,19,23,24,25,28,29,34,42,44,47,48; ckpt2 = 0,1,7,8,9,12,16,17,
    18,20,21,22,26,30,43,45; ckpt3 = 4,27,31,32,33,35,36,37,38,39,41,46,49; ckpt4 = 40.
    Tasks 50-99 start from the 50-task generalist (`IliaLarchenko/behavior_50t_checkpoint`).
