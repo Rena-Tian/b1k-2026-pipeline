@@ -18,20 +18,30 @@ experience of the 2026-09 runs; the numbers below are measured, not guesses.
 ## Scoring (from omnigibson/metrics/task_metric.py)
 - Per instance: q = (goal predicates NEWLY satisfied) / (total ground goal predicates), max over grounding
   options; 1.0 on full success. Predicates already true at reset count in the denominator but never pay.
-- Official task score = sum of q over the 20 public instances (301-320) / 20. Unrun instances count 0 —
-  ALWAYS finish all 20. Overall = sum over 100 tasks / 100.
+- **Leaderboard task score = sum of q over public instances 0-9 (instance ids 301-310), ONE rollout each,
+  default 1.5x timeouts, / 10.** Unrun instances count 0 — always finish all 10. Overall = sum over 100 tasks
+  / 100 (a full submission is 100 tasks x 10 instances). Source: `BEHAVIOR-1K/docs/challenge/evaluation.md`
+  and `submission.md` (2026 docs).
+- Public instances 10-19 (311-320) do NOT count; they are the held-out test set. The organizers evaluate the
+  top 5 again on 10 hidden instances.
+- No cherry-picking: report the prescribed single rollout per instance. Re-running an instance that crashed
+  without producing a result (e.g. GPU OOM) is fine; re-running a finished one to get a better score is not.
+- History: until 2026-09-29 we averaged all 20 public instances (/20); that under-reported us (0.0172 vs 0.0199).
 
-## Results so far (official q, 20/20 instances)
-| Task | q | init | notes |
-|---|---|---|---|
-| 1 picking_up_trash | 0.5167 | winner checkpoint_2 | 5 solves; best task |
-| 40 make_microwave_popcorn | 0.350 | winner checkpoint_4 | all-or-nothing in practice |
-| 56 make_rose_centerpieces | 0.2625 | 50t generalist, joint 56/78/99 run | all partial credit |
-| 89 installing_a_fax_machine | 0.250 | 50t generalist | best ckpt 8000, not 9999 |
-| 10 set_up_a_coffee_station | 0.225 | winner checkpoint_1 | all partial |
-| 42 chop_an_onion | 0.100 | winner checkpoint_1 | |
-| 99 sorting_books_on_shelf | 0.018 | joint run | dedicated retrain being evaluated |
-| 78, 46, 34, 63, 69 | 0 | | all-or-nothing or long horizon |
+## Results so far (leaderboard method: instances 301-310, / 10; as of 2026-09-29)
+| Task | leaderboard q | all-20 avg (old method) | checkpoint / init | notes |
+|---|---|---|---|---|
+| 1 picking_up_trash | **0.5667** | 0.5167 | ft_task1/9999, winner checkpoint_2 | 2 of 10 solved; best task |
+| 40 make_microwave_popcorn | 0.400 | 0.350 | ft_task40/9999, winner checkpoint_4 | all-or-nothing in practice |
+| 56 make_rose_centerpieces | 0.350 | 0.2625 | ft_3more/19999, 50t generalist, joint 56/78/99 | all partial credit |
+| 89 installing_a_fax_machine | 0.250 | 0.250 | ft_task89/8000, 50t generalist | best ckpt 8000, not 9999 |
+| 10 set_up_a_coffee_station | 0.2333 | 0.225 | ft_task10/9999, winner checkpoint_1 | all partial |
+| 42 chop_an_onion | 0.150 | 0.100 | ft_task42/9999, winner checkpoint_1 | |
+| 99 sorting_books_on_shelf | 0.0364 | — | ft_task99/9999 dedicated retrain, 50t generalist | old joint ckpt 0.018; public on HF `Rena-Tian/b1k-2026-task99-ft1` |
+| 78, 46, 34, 63, 69 | 0 | 0 | | all-or-nothing or long horizon |
+| 67 boxing_food_after_dinner | — | — | ft_task67 (trained 2026-09-29) | not yet evaluated |
+
+Sum 1.9864 -> overall **0.0199**.
 
 ## How to pick a task (in this order)
 1. **Check the team tracker first** (OneDrive sheet "Stanford BEHAVIOR Challenge: Task Tracker"). Never
@@ -43,7 +53,7 @@ experience of the 2026-09 runs; the numbers below are measured, not guesses.
    `BEHAVIOR-1K/datasets/2026-challenge-task-instances/metadata/task.jsonl`). 7.7k-step tasks scored ~0.
 4. **Tasks 0-49: use the winner's per-task checkpoint** (ckpt1-4; map below) — our top two tasks did.
    The winner's own per-task 2025 scores (`BEHAVIOR-1K/docs/challenge_submissions/standard.{public,hidden}.
-   Robot_Learning_Collective.*.json`) predict what is reachable (we kept 78% of it on task 1).
+   Robot_Learning_Collective.*.json`) predict what is reachable (we kept 85% of it on task 1: 0.567 vs 0.667, both on instances 0-9).
    Winner map: ckpt1 = 2,3,5,6,10,11,13,14,15,19,23,24,25,28,29,34,42,44,47,48; ckpt2 = 0,1,7,8,9,12,16,17,
    18,20,21,22,26,30,43,45; ckpt3 = 4,27,31,32,33,35,36,37,38,39,41,46,49; ckpt4 = 40.
    Tasks 50-99 start from the 50-task generalist (`IliaLarchenko/behavior_50t_checkpoint`).
@@ -83,8 +93,12 @@ experience of the 2026-09 runs; the numbers below are measured, not guesses.
   runs a fresh policy server + simulator per instance and skips instances that already have a json, so
   reruns resume. Output: `~/eval_outputs/<task>_<tag>_step<S>/`. Use a distinct `--run` tag per training
   run so results of different runs never share a folder.
-- Checkpoint choice: screen 5 instances per sweep checkpoint, then all 20 on the best (task 89: 8000 beat
-  9999). Screening ranks, it does not measure.
+- **Checkpoint choice on the TEST instances, score on the LEADERBOARD instances**: screen each sweep
+  checkpoint (e.g. 6000, 8000, 9999) on a few of instances 10-19 (`--instances 10 11 12 13 14`, ids 311-315),
+  pick the best (ties -> later step), then run instances 0-9 (301-310) once on that checkpoint and report
+  sum/10. Selecting on 301-310 itself inflates the reported number. The last checkpoint is not always best
+  (task 89: 8000 beat 9999); task 99's retrain improved at every checkpoint. Screening ranks, it does not measure.
+- A full task eval is therefore 10 rollouts (+ screens), not 20.
 - A rollout takes ~40-55 min at full GPU speed (time limit = 1.5 x demo length).
 - Only use a streamed checkpoint after the streamer logged "step N: verified" (rsync writes straight into
   the final dir, so a manifest file alone is not proof).
