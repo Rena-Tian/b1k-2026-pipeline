@@ -3,12 +3,12 @@
   <div class="intro">
     <span class="eyebrow">BEHAVIOR Challenge 2026 · team progress</span>
     <h1>BEHAVIOR 2026 Scoreboard</h1>
-    <p class="sub">Where our fine-tuned pi0.5 policies stand on the 100 household tasks, what is running now, and which tasks to train next. Updated 29 Sep 2026, 12:00 PDT. Scored the leaderboard way: public instances 0–9 (301–310), sum ÷ 10.</p>
+    <p class="sub">Where our fine-tuned pi0.5 policies stand on the 100 household tasks, what is running now, and which tasks to train next. Updated 30 Sep 2026, 02:15 PDT. Shows Rena's tasks only (tasks 10 and 40 are Richard's). Scored the leaderboard way: public instances 0–9 (301–310), sum ÷ 10.</p>
   </div>
   <div class="figs" role="list">
-    <div class="fig" role="listitem"><b>0.0199</b><span>overall score, leaderboard method<br>(sum 1.9864 ÷ 100 tasks)</span></div>
-    <div class="fig" role="listitem"><b>8</b><span>tasks scored on the 10 leaderboard instances</span></div>
-    <div class="fig" role="listitem"><b>8</b><span>full task completions on those instances</span></div>
+    <div class="fig" role="listitem"><b>0.0144</b><span>overall score, leaderboard method<br>(sum 1.4364 ÷ 100 tasks)</span></div>
+    <div class="fig" role="listitem"><b>7</b><span>tasks scored on the 10 leaderboard instances</span></div>
+    <div class="fig" role="listitem"><b>4</b><span>full task completions on those instances</span></div>
   </div>
 </header>
 
@@ -29,7 +29,8 @@
   <div class="sechead"><span class="eyebrow">Right now</span><h2 id="h-now">Eval queue and next run</h2></div>
   <div class="list">
     <div class="li"><span class="pill p-done">done</span><b>Task 99 · sorting_books_on_shelf — dedicated retrain: 0.036</b><p>Leaderboard instances 301–310 are complete: 4 of 10 placed a book (old joint checkpoint: 0.018). Checkpoint screen rose with training (6000 → 8000 → 9999). The eval is now finishing test instances 311–320, which don't count. Checkpoint public on <a href="https://huggingface.co/Rena-Tian/b1k-2026-task99-ft1">Hugging Face</a>.</p></div>
-    <div class="li"><span class="pill p-next">eval next</span><b>Task 67 · boxing_food_after_dinner</b><p>Trained 28–29 Sep (final loss 0.163). Plan: choose the checkpoint on test instances 311–320, then report on 301–310 — about 10 h instead of 20.</p></div>
+    <div class="li"><span class="pill p-done">done</span><b>Task 67 · boxing_food_after_dinner (Rena): 0.083</b><p>Checkpoint 9999, chosen on test instances (6000 and 8000 scored 0/3). Leaderboard 301–310: 305 = 0.333, 306 = 0.333, 307 = 0.167, the rest 0. The robot opens the fridge and puts plates in the sink; it rarely gets the tupperware out of the cabinet.</p></div>
+    <div class="li"><span class="pill p-next">eval next</span><b>Task 12 · preparing_lunch_box (Richard's checkpoints)</b><p>All five of Richard's checkpoints copied to our drive. Eval starting now: screen 8000 and 9999 on test instances 311–313, then leaderboard 301–310 on the best.</p></div>
     <div class="li"><span class="pill p-done">done</span><b>Task 1 · picking_up_trash: 0.567</b><p>Our best task. 2 of 10 solved outright, 8 of 10 scored. Started from the winner's checkpoint_2.</p></div>
     <div class="li"><span class="pill p-zero">done, 0</span><b>Task 78 · make_cabinet_doors: 0.000</b><p>No attach on any instance. Single all-or-nothing goal.</p></div>
   </div>
@@ -38,9 +39,9 @@
 <section aria-labelledby="h-learn">
   <div class="sechead"><span class="eyebrow">What we have learned</span><h2 id="h-learn">Rules for picking tasks</h2></div>
   <div>
-    <div class="finding"><h3>Partial credit is where most points are</h3><p>q counts each goal predicate the robot newly satisfies. Tasks 56, 10 and 42 scored with zero completions. Every all-or-nothing task we tried without a strong starting checkpoint scored 0.</p></div>
+    <div class="finding"><h3>Partial credit is where most points are</h3><p>q counts each goal predicate the robot newly satisfies. Tasks 56 and 42 scored with zero completions. Every all-or-nothing task we tried without a strong starting checkpoint scored 0.</p></div>
     <div class="finding"><h3>Short horizons win</h3><p>Everything we have scored has a human demo under ~6,500 steps. Tasks 46 (7,680) and 99 (7,739) scored 0 and 0.036.</p></div>
-    <div class="finding"><h3>A task the 2025 winner already trained is a head start</h3><p>Our top two, task 1 (0.567) and task 40 (0.400), both started from a winner checkpoint that already knew the task. Tasks 0–49 have such checkpoints; 50–99 start from the 50-task generalist.</p></div>
+    <div class="finding"><h3>A task the 2025 winner already trained is a head start</h3><p>Our best task, task 1 (0.567), started from the winner's checkpoint_2, which already knew the task. Tasks 0–49 have such checkpoints; 50–99 start from the 50-task generalist.</p></div>
     <div class="finding"><h3>The last checkpoint is not always best</h3><p>Task 89 scored 0.30 at step 8000 vs 0.15 at 9999 on the same instances; task 99's retrain improved at every checkpoint instead. Choose the checkpoint on test instances 311–320, then report the leaderboard instances 301–310.</p></div>
   </div>
 </section>

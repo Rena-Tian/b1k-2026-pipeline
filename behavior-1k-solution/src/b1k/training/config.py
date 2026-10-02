@@ -747,6 +747,45 @@ _CONFIGS += [
         num_workers=16,
         peak_lr=5e-5,
     ),
+    # Task 12 preparing_lunch_box (2026-09-29). Task-1 recipe (our best task): init winner checkpoint_2,
+    # which already trained task 12 (winner 2025: 0.517 public / 0.367 hidden), num_tasks=50 so its
+    # task-12 embedding is kept. Goal: 6 predicates, 5 earnable (fridge-closed true at reset); 4 of them
+    # are items on a chopping board next to the packing box (2 apple halves, sandwich, cookie -> inside
+    # box) = task 1's put-it-in-the-container skill with little navigation; tea bottle is in the fridge.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task12",
+            repo_id="b1k_2026_task12",
+            dataset_root="/workspace/behavior-challenge-2026/datasets/task12",
+            weight_params_path="/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params",
+            episodes=list(range(2400, 2580)),  # task 12 -> episodes 2400..2599; hold out the last 20
+            batch_size=16,
+            num_train_steps=10_000,
+            num_workers=16,
+            peak_lr=5e-5,
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+    ),
+    # Task 20 sorting_vegetables (2026-09-30, Rena). Task-1 recipe: init winner checkpoint_2, which already
+    # trained task 20 (winner 2025: 0.48 public / 0.45 hidden), num_tasks=50 so its task-20 embedding is
+    # kept. Goal: 13 vegetables from two wicker baskets on the floor into 3 mixing bowls by type = 13 inside
+    # predicates, all false at reset, 1/13 each -- task 1's put-it-in-a-container skill, repeated.
+    # checkpoint_2 is the family that transferred best for us (task 1 0.567, Richard's task 12 screening
+    # 0.20/instance). Long demos (11,904 steps) -> ~2 h eval rollouts.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task20",
+            repo_id="b1k_2026_task20",
+            dataset_root="/workspace/behavior-challenge-2026/datasets/task20",
+            weight_params_path="/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params",
+            episodes=list(range(4000, 4180)),  # task 20 -> episodes 4000..4199; hold out the last 20
+            batch_size=16,
+            num_train_steps=10_000,
+            num_workers=16,
+            peak_lr=5e-5,
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+    ),
     # Task 99 sorting_books_on_shelf, RETRAIN as a dedicated single-task run (2026-09-26).
     # It previously shared a 20k-step run with tasks 56 and 78, so its task embedding got roughly a
     # third of the gradient signal; task 56 came out of that run at 0.263 while 99 scored 0.000.
@@ -779,6 +818,22 @@ _CONFIGS += [
         dataset_root="/workspace/behavior-challenge-2026/datasets/task59",
         weight_params_path=_WINNER_CKPT_POD,          # 50-task generalist; no specialist exists for id >= 50
         episodes=list(range(11800, 11980)),           # task 59 -> episodes 11800..11999; hold out the last 20
+        batch_size=16,
+        num_train_steps=10_000,
+        num_workers=16,
+        peak_lr=5e-5,
+    ),
+    # Task 62 (halve_an_egg), claimed 2026-09-28. 5 goal predicates, all false at reset:
+    # 2 ontop + 1 inside are plain pick-and-place and pay independently (0.6 reachable without
+    # ever cutting); the 2 'real' predicates need the halve. Demo 6,377 steps, just inside the
+    # ~6.5k limit above which nothing has scored. Generalist init: no specialist exists for id >= 50,
+    # and the weight loader pads the task tables 50->100 so task 62 gets its own embedding row.
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task62",
+        repo_id="b1k_2026_task62",
+        dataset_root="/workspace/behavior-challenge-2026/datasets/task62",
+        weight_params_path=_WINNER_CKPT_POD,
+        episodes=list(range(12400, 12580)),           # task 62 -> episodes 12400..12599; hold out the last 20
         batch_size=16,
         num_train_steps=10_000,
         num_workers=16,

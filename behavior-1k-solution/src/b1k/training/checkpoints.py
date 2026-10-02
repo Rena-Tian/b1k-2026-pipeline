@@ -57,6 +57,12 @@ def initialize_checkpoint_dir(
             "params": ocp.PyTreeCheckpointHandler(),
         },
         options=ocp.CheckpointManagerOptions(
+            # Synchronous saves. The async path deadlocked mid-transfer on 2026-09-29 during
+            # the task-62 run: main thread parked on futex_wait_queue with 1137 threads alive,
+            # tmp dir frozen at 18 MB for 21 min while the GPU sat at 0%. Saves at steps 500 and
+            # 1000 had succeeded, so the hang is intermittent. Blocking on the save costs under a
+            # minute per checkpoint and removes the failure mode entirely.
+            enable_async_checkpointing=False,
             max_to_keep=1,
             keep_period=keep_period,
             create=False,
