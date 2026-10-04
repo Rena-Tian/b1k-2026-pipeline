@@ -28,7 +28,7 @@ experience of the 2026-09 runs; the numbers below are measured, not guesses.
   without producing a result (e.g. GPU OOM) is fine; re-running a finished one to get a better score is not.
 - History: until 2026-09-29 we averaged all 20 public instances (/20); that under-reported us (0.0172 vs 0.0199).
 
-## Results so far (leaderboard method: instances 301-310, / 10; as of 2026-10-01)
+## Results so far (leaderboard method: instances 301-310, / 10; as of 2026-10-04)
 | Task | owner | leaderboard q | checkpoint / init | notes |
 |---|---|---|---|---|
 | 1 picking_up_trash | Rena | **0.5667** | ft_task1/9999, winner checkpoint_2 | 2 of 10 solved; best task |
@@ -37,14 +37,15 @@ experience of the 2026-09 runs; the numbers below are measured, not guesses.
 | 56 make_rose_centerpieces | Rena | 0.350 | ft_3more/19999, 50t generalist, joint 56/78/99 | all partial credit |
 | 89 installing_a_fax_machine | Rena | 0.250 | ft_task89/8000, 50t generalist | best ckpt 8000, not 9999 |
 | 10 set_up_a_coffee_station | Richard | 0.2333 | ft_task10/9999, winner checkpoint_1 | all partial |
+| 20 sorting_vegetables | Rena | 0.1846 | ft_task20/9999, winner checkpoint_2 | 7 of 10 scored, best 6 of 13 vegetables; screen 8000 mean 0.092, 9999 mean 0.192 |
 | 42 chop_an_onion | Rena | 0.150 | ft_task42/9999, winner checkpoint_1 | |
-| 67 boxing_food_after_dinner | Rena | 0.0833 | ft_task67/9999, 50t generalist | 6000/8000 scored 0; 9999 opens fridge, plates to sink, rarely gets the tupperware out |
+| 67 boxing_food_after_dinner | Richard | 0.0833 | ft_task67/9999, 50t generalist | 6000/8000 scored 0; 9999 opens fridge, plates to sink, rarely gets the tupperware out |
 | 99 sorting_books_on_shelf | Rena | 0.0364 | ft_task99/9999 dedicated retrain, 50t generalist | old joint ckpt 0.018; public on HF `Rena-Tian/b1k-2026-task99-ft1` |
-| 20 sorting_vegetables | Rena | running | ft_task20/9999, winner checkpoint_2 | screen: 8000 mean 0.092, 9999 mean 0.192 (1/13 per vegetable) |
 | 78, 46, 34, 63, 69 | Rena | 0 | | all-or-nothing or long horizon |
 
-Rena's tasks: 1, 20, 34, 42, 46, 56, 63, 67, 69, 78, 89, 99 (sum 1.4364 -> 0.0144 before task 20).
-Richard's tasks: 10, 12, 40, 48, 59, 62. Amy's: 90, 91, 93, 96, 97. Always confirm on the live tracker.
+Rena's tasks: 1, 20, 34, 42, 46, 56, 63, 69, 78, 89, 99 -> sum 1.5377 -> **0.0154**.
+Richard's tasks: 10, 12, 40, 48, 59, 62, 67 -> scored here 1.0833 -> 0.0108 (48/59/62 scored on his side).
+Combined 2.621 -> 0.0262. Amy's: 90, 91, 93, 96, 97. Always confirm owners on the live tracker.
 
 ## How to pick a task (in this order)
 1. **Check the LIVE team tracker first** (OneDrive sheet "Stanford BEHAVIOR Challenge: Task Tracker"). Never
