@@ -100,6 +100,13 @@ class DataConfig:
     task_id_map: dict[int, int] | None = None
     # lerobot_v3 only: timestamp tolerance for the LeRobot loader (B1K exports need a loose one)
     tolerance_s: float = 0.5
+    # lerobot_v3 only: stage labels from equal time slices ("time", original) or from the demos' skill
+    # annotations under <root>/annotations ("skills", ComputeSubtaskStateFromSkills)
+    stage_labels: Literal["time", "skills"] = "time"
+    # lerobot_v3 only: frames inside these skill-annotation segments (skill_description, e.g. "open lid") appear
+    # oversample_factor times per epoch; () = off. Added 2026-10-12 for the task-68 lid-opening fine-tune.
+    oversample_skills: tuple[str, ...] = ()
+    oversample_factor: int = 1
     # lerobot_v3 only: LeRobot video backend (None = library default)
     video_backend: str | None = None
 
@@ -519,6 +526,11 @@ def _pi_behavior_2026_config(
     num_workers: int = 16,
     peak_lr: float = 5e-5,
     exp_name: str = "ft1",
+    # Skill-annotation stages are the default for every 2026 run from 2026-10-11 on (user: use the new
+    # training method for all future training). Runs trained before that used "time".
+    stage_labels: Literal["time", "skills"] = "skills",
+    oversample_skills: tuple[str, ...] = (),
+    oversample_factor: int = 1,
 ) -> TrainConfig:
     return TrainConfig(
         name=name,
@@ -535,6 +547,9 @@ def _pi_behavior_2026_config(
                 episodes_index=episodes,
                 task_id_map=task_id_map,
                 tolerance_s=0.5,
+                stage_labels=stage_labels,
+                oversample_skills=oversample_skills,
+                oversample_factor=oversample_factor,
             ),
             use_delta_joint_actions=True,
             use_fast_tokenization=True,
@@ -838,6 +853,574 @@ _CONFIGS += [
         num_train_steps=10_000,
         num_workers=16,
         peak_lr=5e-5,
+    ),
+    # Batch requested by the user 2026-10-08: tasks 26, 41, 43, 49, 51. Same recipe as every other
+    # single-task run (10k steps, batch 16, lr 5e-5, ft1). Ids < 50 start from the winner specialist
+    # that already trained them and keep num_tasks=50; 51 starts from the 50-task generalist.
+    *[
+        dataclasses.replace(
+            _pi_behavior_2026_config(
+                f"pi_behavior_b1k_2026_task{task}",
+                repo_id=f"b1k_2026_task{task}",
+                dataset_root=f"/workspace/behavior-challenge-2026/datasets/task{task}",
+                weight_params_path=f"/workspace/openpi_checkpoints/winner_larchenko/{ckpt}/params",
+                episodes=list(range(task * 200, task * 200 + 180)),  # hold out the last 20 demos
+                batch_size=batch,
+                num_train_steps=steps,
+                num_workers=16,
+                peak_lr=5e-5,
+            ),
+            model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+        )
+        # 26 assembling_gift_baskets (16 inside goals, winner 0.21/0.28), 43 slicing_vegetables
+        # (winner 0.19/0.28): checkpoint_2. 41 cook_cabbage, 49 make_pizza (winner 0.0 on both):
+        # checkpoint_3. Tasks 41 and 49 run 20k steps at batch 16 (user, 2026-10-10); the cosine decay follows
+        # num_train_steps.
+        for task, ckpt, steps, batch in (
+            (26, "checkpoint_2", 10_000, 16),
+            (43, "checkpoint_2", 10_000, 16),
+            (41, "checkpoint_3", 20_000, 16),
+            (49, "checkpoint_3", 20_000, 16),
+            # 34 hanging_pictures retrain with skill stages (user, 2026-10-11): the scored 0.0 came from
+            # the old pi05 3task_calib run; this is the first run with the winner-specialist recipe.
+            (34, "checkpoint_1", 20_000, 16),
+        )
+    ],
+    # 51 cook_a_brisket: id >= 50, so no specialist exists -> task-89 recipe with the generalist init.
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task51",
+        repo_id="b1k_2026_task51",
+        dataset_root="/workspace/behavior-challenge-2026/datasets/task51",
+        weight_params_path=_WINNER_CKPT_POD,
+        episodes=list(range(10200, 10380)),           # task 51 -> episodes 10200..10399; hold out the last 20
+        batch_size=16,
+        num_train_steps=10_000,
+        num_workers=16,
+        peak_lr=5e-5,
+    ),
+    # 68 cleaning_up_branches_and_twigs (Richard's task). Reconstructed 2026-10-11 from his checkpoints after his pod's
+    # container (and his config copy) was wiped: task_embeddings [100, 2048] / task_stage_embeddings [1105, 1024] =
+    # the 100-task 2026 model with the 50t generalist init, i.e. the task-51 recipe; norm stats ship in the
+    # checkpoint (assets/b1k_2026_task68). Used for eval; training details beyond that are a best guess.
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task68",
+        repo_id="b1k_2026_task68",
+        # B1K_DATASETS_ROOT: per-pod dataset location (task 68 retrain keeps it in /dev/shm on an S3-volume pod)
+        dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task68",
+        # B1K_INIT_PARAMS: local copy of the init params (S3/geesefs volume reads failed with RESOURCE_EXHAUSTED)
+        weight_params_path=os.environ.get("B1K_INIT_PARAMS", _WINNER_CKPT_POD),
+        episodes=list(range(68 * 200, 68 * 200 + 180)),
+        batch_size=16,
+        # Retrain 2026-10-12 (user): all four of Richard's checkpoints scored 0 on 311-313 -> winner 50t init,
+        # 20k steps, skill-annotation stages (the default).
+        num_train_steps=20_000,
+        num_workers=16,
+        peak_lr=5e-5,
+    ),
+    # Task 51 again with stage labels from the demos' skill annotations instead of time slices (user,
+    # 2026-10-11: the time-sliced run scored 0 and its eval stage kept sliding back). Same recipe and
+    # init otherwise, so the two runs compare directly.
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task51_skills",
+        repo_id="b1k_2026_task51",
+        dataset_root="/workspace/behavior-challenge-2026/datasets/task51",
+        weight_params_path=_WINNER_CKPT_POD,
+        episodes=list(range(10200, 10380)),
+        batch_size=16,
+        num_train_steps=10_000,
+        num_workers=16,
+        peak_lr=5e-5,
+        stage_labels="skills",
+    ),
+    # Task 43 retrain with skill stages, 20k (user, 2026-10-11): the time-sliced 10k run scored 0 on 311 and
+    # its video shows it opening the fridge, never picking a vegetable, and wandering off. Same init
+    # (winner specialist checkpoint_2, num_tasks=50) and episodes as pi_behavior_b1k_2026_task43; keep
+    # 10000 to separate the effect of skill stages (vs old 9999) from that of more steps (vs 19999).
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task43_skills",
+            repo_id="b1k_2026_task43",
+            dataset_root="/workspace/behavior-challenge-2026/datasets/task43",
+            weight_params_path="/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params",
+            episodes=list(range(43 * 200, 43 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=20_000,
+            num_workers=16,
+            peak_lr=5e-5,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+    ),
+    # 61 bringing_paper_to_recycling: retrain with skill stages, 20k (user 2026-10-11; Richard's first run used time
+    # stages). Same recipe as task 68: 100-task model, winner 50t generalist init.
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task61",
+        repo_id="b1k_2026_task61",
+        dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task61",
+        # B1K_INIT_PARAMS: local copy of the init params (S3/geesefs volume reads failed with RESOURCE_EXHAUSTED)
+        weight_params_path=os.environ.get("B1K_INIT_PARAMS", _WINNER_CKPT_POD),
+        episodes=list(range(61 * 200, 61 * 200 + 180)),
+        batch_size=16,
+        num_train_steps=20_000,
+        num_workers=16,
+        peak_lr=5e-5,
+    ),
+    # 64 setting_the_table: first training (user 2026-10-12 "retrain" for task 64). Same recipe as 61/68: 100-task model,
+    # winner 50t generalist init, skill stages (default), 20k steps.
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task64",
+        repo_id="b1k_2026_task64",
+        dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task64",
+        weight_params_path=os.environ.get("B1K_INIT_PARAMS", _WINNER_CKPT_POD),
+        episodes=list(range(64 * 200, 64 * 200 + 180)),
+        batch_size=16,
+        num_train_steps=20_000,
+        num_workers=16,
+        peak_lr=5e-5,
+    ),
+    # 69 vacuuming_floors (user 2026-10-15 ~11:55 PDT: "Train 69 with our new way. 30k steps, use the last checkpoint do eval
+    # directly"): new 2026 task (no winner specialist) -> winner 50t generalist init like 64, but the single-task LOW-lr recipe
+    # (peak 5e-6 -> 1e-6 cosine, warmup 100), skill stages, 30k steps, final 29999 straight to the official run. Goal = 1 literal.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task69_lowlr",
+            repo_id="b1k_2026_task69_lowlr",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task69_lowlr",
+            weight_params_path=os.environ.get("B1K_INIT_PARAMS", _WINNER_CKPT_POD),
+            episodes=list(range(69 * 200, 69 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=30_000,
+            num_workers=16,
+            peak_lr=5e-6,
+            stage_labels="skills",
+        ),
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=100, peak_lr=5e-6, decay_steps=30_000, decay_lr=1e-6),
+    ),
+    # 92 installing_a_scanner (user 2026-10-16 ~00:30 PDT: "train 92 with 89 fine tune, 30k step"; lr: user chose 5e-5 over
+    # 2.5e-5/5e-6 ~00:40): init = OUR task-89 model (installing_a_fax_machine, ft_task89/8000, official 0.250; 100-task tables,
+    # same 5-stage layout as 92), not the winner. Same lr recipe as 89 (peak 5e-5, warmup 500, cosine -> 5e-6), skill stages,
+    # 30k steps; B1K_INIT_PARAMS points at the downloaded Rena-Tian/b1k-2026-task89-ft1 params.
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task92",
+        repo_id="b1k_2026_task92",
+        dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task92",
+        weight_params_path=os.environ.get("B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/ft_task89/8000/params"),
+        episodes=list(range(92 * 200, 92 * 200 + 180)),
+        batch_size=16,
+        num_train_steps=30_000,
+        num_workers=16,
+        peak_lr=5e-5,
+        stage_labels="skills",
+    ),
+    # 92 continuation (user 2026-10-16 ~10:25 PDT: "after finishing 30k, then keep training to 50k"): starts from the 30k run's
+    # final params (step 29999), 20k more steps (global 30000 -> 50000). Short warmup to 1e-5 (2x where the 30k cosine ended),
+    # cosine -> 2e-6. Params-only ckpts, so the optimizer state starts fresh.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task92_cont",
+            repo_id="b1k_2026_task92_cont",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task92_cont",
+            weight_params_path=os.environ.get("B1K_INIT_PARAMS", "/dev/shm/winner/task92_29999/params"),
+            episodes=list(range(92 * 200, 92 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=20_000,
+            num_workers=16,
+            peak_lr=1e-5,
+            stage_labels="skills",
+            # user 2026-10-16 ~14:25 PDT: screens show the robot carrying the scanner upright and never setting it down to
+            # press the button -> repeat the "turn on switch" + "place on" demo frames 4x (scanner flat on the desk, press).
+            oversample_skills=("turn on switch", "place on"),
+            oversample_factor=4,
+        ),
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=200, peak_lr=1e-5, decay_steps=20_000, decay_lr=2e-6),
+    ),
+    # 65 (Amy's task; user 2026-10-13: new A100 pod ur41wgi01rxhoq "should be for 65 training"). Same recipe as 61/64:
+    # 100-task model, winner 50t generalist init, skill stages (default), 20k steps, episodes 13000-13179.
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task65",
+        repo_id="b1k_2026_task65",
+        dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task65",
+        weight_params_path=os.environ.get("B1K_INIT_PARAMS", _WINNER_CKPT_POD),
+        episodes=list(range(65 * 200, 65 * 200 + 180)),
+        batch_size=16,
+        num_train_steps=20_000,
+        num_workers=16,
+        peak_lr=5e-5,
+    ),
+    # Task 45 cook_hot_dogs (Thomas's task; user 2026-10-13: "train it with 2026 demo 20k, using our runbook"). The winner's
+    # checkpoint_2 unchanged scored 0 on 301/302 (never takes the hot dogs out of the fridge) -> runbook recipe: specialist
+    # init checkpoint_2, num_tasks 50, 20k steps, batch 16, lr 5e-5, skill stages, episodes 9000-9179.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task45",
+            repo_id="b1k_2026_task45",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task45",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params"),
+            episodes=list(range(45 * 200, 45 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=20_000,
+            num_workers=16,
+            peak_lr=5e-5,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+    ),
+    # Tasks 7 + 16 + 18 + 30 + 43 trained together, 10k steps (user 2026-10-14 ~08:30 PDT, replaces the 500-step plan; the
+    # coach ruled last year's checkpoints may not be used unchanged). All five are checkpoint_2 tasks -> same recipe as 8+9.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task7_16_18_30_43",
+            repo_id="b1k_2026_task7_16_18_30_43",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task7_16_18_30_43",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params"),
+            episodes=[e for t in (7, 16, 18, 30, 43) for e in range(t * 200, t * 200 + 180)],
+            batch_size=16,
+            num_train_steps=10_000,
+            num_workers=16,
+            peak_lr=5e-5,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+    ),
+    # Tasks 11 + 13 + 15 + 17 + 25 (Thomas's 0-point tasks, now Rena's) trained together, 10k steps (user 2026-10-14 ~10:05 PDT,
+    # pod mti). 11/13/15/25 are winner checkpoint_1 tasks (17 is checkpoint_2) -> init checkpoint_1; same recipe as 7+16+18+30+43.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task11_13_15_17_25",
+            repo_id="b1k_2026_task11_13_15_17_25",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task11_13_15_17_25",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_1/params"),
+            episodes=[e for t in (11, 13, 15, 17, 25) for e in range(t * 200, t * 200 + 180)],
+            batch_size=16,
+            num_train_steps=10_000,
+            num_workers=16,
+            peak_lr=5e-5,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+    ),
+    # Task 16 alone, LOW-lr fine-tune from winner checkpoint_2 (user 2026-10-14 ~17:10 PDT). The 5-task 10k run (peak 5e-5) dropped
+    # task 16 from 0.600 (checkpoint_2 unchanged) to 0.250: it kept carrying boxes but lost the final stacking. 3000 steps, peak
+    # 5e-6 -> 1e-6 cosine, warmup 100, skill stages; on mti (A100) B1K_INIT_PARAMS points at a local copy of checkpoint_2.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task16_lowlr",
+            repo_id="b1k_2026_task16_lowlr",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task16_lowlr",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params"),
+            episodes=list(range(16 * 200, 16 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=3_000,
+            num_workers=16,
+            peak_lr=5e-6,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=100, peak_lr=5e-6, decay_steps=3_000, decay_lr=1e-6),
+    ),
+    # Task 7 alone, same LOW-lr recipe as task16_lowlr (user 2026-10-14 ~17:20 PDT: "train the same way for task 7"). checkpoint_2
+    # unchanged scored 0.4167 on 301-310; the 5-task 10k run scored 0 on every screen.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task7_lowlr",
+            repo_id="b1k_2026_task7_lowlr",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task7_lowlr",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params"),
+            episodes=list(range(7 * 200, 7 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=3_000,
+            num_workers=16,
+            peak_lr=5e-6,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=100, peak_lr=5e-6, decay_steps=3_000, decay_lr=1e-6),
+    ),
+    # Task 11 alone, same LOW-lr recipe as task16_lowlr but from winner checkpoint_1 (task 11 is a checkpoint_1 task)
+    # (user 2026-10-14 ~20:55 PDT: "train 11"). The 11/13/15/17/25 group run (5e-5, 10k) scored 0 on its step-5000 screens.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task11_lowlr",
+            repo_id="b1k_2026_task11_lowlr",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task11_lowlr",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_1/params"),
+            episodes=list(range(11 * 200, 11 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=3_000,
+            num_workers=16,
+            peak_lr=5e-6,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=100, peak_lr=5e-6, decay_steps=3_000, decay_lr=1e-6),
+    ),
+    # Task 17 alone, same LOW-lr recipe as task16_lowlr but 2000 steps (user 2026-10-14 ~22:40 PDT: "train task 17", "task 17 2000step"; task16_lowlr scored 0.500).
+    # checkpoint_2 task; winner 2025: 0.267 public / 0.667 hidden. The 11/13/15/17/25 group run scored 0 on its step-5000 screens.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task17_lowlr",
+            repo_id="b1k_2026_task17_lowlr",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task17_lowlr",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params"),
+            episodes=list(range(17 * 200, 17 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=2_000,
+            num_workers=16,
+            peak_lr=5e-6,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=100, peak_lr=5e-6, decay_steps=2_000, decay_lr=1e-6),
+    ),
+    # Task 13 alone, same LOW-lr 2000-step recipe as task17_lowlr but from winner checkpoint_1 (task 13 is a checkpoint_1 task)
+    # (user 2026-10-14 ~23:00 PDT: "que 11,18,30,17,13"). Winner 2025: 0.200 public / 0.167 hidden; group run: 0 at step 5000.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task13_lowlr",
+            repo_id="b1k_2026_task13_lowlr",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task13_lowlr",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_1/params"),
+            episodes=list(range(13 * 200, 13 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=2_000,
+            num_workers=16,
+            peak_lr=5e-6,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=100, peak_lr=5e-6, decay_steps=2_000, decay_lr=1e-6),
+    ),
+    # Tasks 15 and 25 alone, same LOW-lr 2000-step recipe as task13_lowlr (checkpoint_1 tasks). Trained only if the
+    # 11/13/15/17/25 group's step-9999 screens all score 0 for that task (user 2026-10-14 ~23:05 PDT).
+    *[
+        dataclasses.replace(
+            _pi_behavior_2026_config(
+                f"pi_behavior_b1k_2026_task{_t}_lowlr",
+                repo_id=f"b1k_2026_task{_t}_lowlr",
+                dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + f"/task{_t}_lowlr",
+                weight_params_path=os.environ.get(
+                    "B1K_INIT_PARAMS", f"/workspace/openpi_checkpoints/winner_larchenko/checkpoint_{3 if _t in (4, 36, 37, 46) else 2 if _t in (21,) else 1}/params"),
+                episodes=list(range(_t * 200, _t * 200 + 180)),
+                batch_size=16,
+                num_train_steps=2_000,
+                num_workers=16,
+                peak_lr=5e-6,
+                stage_labels="skills",
+            ),
+            model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+            lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=100, peak_lr=5e-6, decay_steps=2_000, decay_lr=1e-6),
+        )
+        # 29 clean_up_your_desk (user 2026-10-15 ~06:30 PDT: "start task 29 training"); 23 boxing_books_up_for_storage on idle mti
+        # (~07:15); 48 canning_food (checkpoint_1) and 4 can_meat / 36 clean_a_patio / 37 clean_a_trumpet (checkpoint_3), the
+        # unassigned tasks (user ~08:15: "can we try more tasks?")
+        # 21 collecting_childrens_toys (checkpoint_2; user ~09:00 "try task 21 right now": Thomas's generalist got .0143, winner .433)
+        # 24 storing_food + 14 carrying_in_groceries (checkpoint_1; user ~09:05 "yes": Thomas's generalist .0125 / .05, winner .375 / .15)
+        # 46 cook_bacon (checkpoint_3; user ~11:50 "Run 46"): winner .757 pub; our Sept 10k lr-5e-5 run scored 0
+        for _t in (15, 25, 29, 23, 48, 4, 36, 37, 21, 24, 14, 46)
+    ],
+    # Tasks 18 and 30 alone, same LOW-lr recipe + hard skill segments repeated 3x (user 2026-10-14 ~19:10 PDT, after the video
+    # review: rollouts stall re-grasping the book / newspaper, sandals never released at the bed, lighter rarely ignited).
+    # checkpoint_2 unchanged: task 18 0.367 on 301-310; task 30 0/0.125/0.5/0.5/0.25 on 309-313. 5-task 10k run: 0 on both.
+    *[
+        dataclasses.replace(
+            _pi_behavior_2026_config(
+                f"pi_behavior_b1k_2026_task{_t}_lowlr",
+                repo_id=f"b1k_2026_task{_t}_lowlr",
+                dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + f"/task{_t}_lowlr",
+                weight_params_path=os.environ.get(
+                    "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params"),
+                episodes=list(range(_t * 200, _t * 200 + 180)),
+                batch_size=16,
+                num_train_steps=3_000,
+                num_workers=16,
+                peak_lr=5e-6,
+                stage_labels="skills",
+                oversample_skills=_skills,
+                oversample_factor=3,
+            ),
+            model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+            lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=100, peak_lr=5e-6, decay_steps=3_000, decay_lr=1e-6),
+        )
+        for _t, _skills in (
+            (18, ("pick up from", "place on next to", "place on")),
+            (30, ("pick up from", "turn on switch", "ignite", "turn off switch")),
+        )
+    ],
+    # Short fine-tunes (user 2026-10-14 ~08:20 PDT, after the coach ruled that last year's checkpoints may not be used
+    # UNCHANGED): tasks 16, 7, 18, 30, 43, each from winner checkpoint_2, 500 steps, runbook data/batch/lr, warmup 100
+    # (500 would leave no cosine phase). One task per run; final step 499 goes straight to the official 301-310 run.
+    *[
+        dataclasses.replace(
+            _pi_behavior_2026_config(
+                f"pi_behavior_b1k_2026_task{_t}_s500",
+                repo_id=f"b1k_2026_task{_t}_s500",
+                dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + f"/task{_t}_s500",
+                weight_params_path=os.environ.get(
+                    "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params"),
+                episodes=list(range(_t * 200, _t * 200 + 180)),
+                batch_size=16,
+                num_train_steps=500,
+                num_workers=16,
+                peak_lr=5e-5,
+                stage_labels="skills",
+            ),
+            model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+            lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=100, peak_lr=5e-5, decay_steps=500, decay_lr=5e-6),
+        )
+        for _t in (16, 7, 18, 30, 43)
+    ],
+    # Task 45 warm restart (2026-10-14 ~02:55 PDT): the 20k run on pod mti deadlocked inside the orbax save at step 13500
+    # (no I/O, GPU idle). Checkpoints are params-only, so it cannot be --resumed: continue from ft1/13000 params
+    # (B1K_INIT_PARAMS) for the remaining 7000 steps, picking the cosine up where it was (lr(13000) = 1.784e-5) and decaying
+    # to the original end lr 5e-6; short warmup to rebuild the AdamW moments. Same data/stages. Local step 3000 = global
+    # 16000, 6999 = global 19999.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task45_r13k",
+            repo_id="b1k_2026_task45",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task45",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/root/init45/13000/params"),
+            episodes=list(range(45 * 200, 45 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=7_000,
+            num_workers=16,
+            peak_lr=1.784e-5,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=100, peak_lr=1.784e-5, decay_steps=7_000, decay_lr=5e-6),
+    ),
+    # Task 45 second warm restart (2026-10-14 ~04:00 PDT): r13k deadlocked the same way at its step-1000 save. Continue from
+    # r13k/500 (= global 13500) for 6500 steps on the same curve (lr_r13k(500) = 1.773e-5 -> 5e-6), launched with
+    # --save_interval=2500 so it only saves at local 2500 (= global 16000), 5000 and the final 6499 (= global 19999).
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task45_r13k5",
+            repo_id="b1k_2026_task45",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task45",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/root/init45/r13k500/params"),
+            episodes=list(range(45 * 200, 45 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=6_500,
+            num_workers=16,
+            peak_lr=1.773e-5,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=50, peak_lr=1.773e-5, decay_steps=6_500, decay_lr=5e-6),
+    ),
+    # 64 continued +30k (user 2026-10-13: "set up the task-64 continuation on e0qa"): eval videos of ft_task64/19999 show the
+    # policy never picking anything up (undertrained: 20k x b16 < 0.1 epoch of 3.2M frames). Starts from ft_task64/19999
+    # (B1K_INIT_PARAMS, local copy on the pod), fresh warmup + cosine over 30k, skill stages, same data.
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task64_cont",
+        repo_id="b1k_2026_task64_cont",
+        dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task64_cont",
+        weight_params_path=os.environ.get("B1K_INIT_PARAMS", "/root/init64/19999/params"),
+        episodes=list(range(64 * 200, 64 * 200 + 180)),
+        batch_size=16,
+        num_train_steps=30_000,
+        num_workers=16,
+        peak_lr=5e-5,
+    ),
+    # 68 lid fine-tune (user 2026-10-12 "add task 68 fine tuning training at last priority"): eval videos showed the
+    # policy tipping the wheelie bin while opening its lid, so "open lid" and "place in" frames are oversampled 4x.
+    # Starts from ft_task68/19999 (B1K_INIT_PARAMS overrides the path), 8k steps at half the usual peak lr.
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task68_lidft",
+        repo_id="b1k_2026_task68",
+        dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task68",
+        weight_params_path=os.environ.get("B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/ft_task68_19999/params"),
+        episodes=list(range(68 * 200, 68 * 200 + 180)),
+        batch_size=16,
+        num_train_steps=8_000,
+        num_workers=16,
+        peak_lr=2.5e-5,
+        oversample_skills=("open lid", "place in"),
+        oversample_factor=4,
+    ),
+    # Task 51 skills, continued (user 2026-10-11: "if all three 0, please continue train 51 15k steps more"): starts from
+    # ft_task51_skills/9999 (uploaded to the pod at this path) and trains 15k more with the same recipe and skill
+    # stages. Fresh warmup + cosine over the 15k (params-only checkpoints carry no optimizer state).
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task51_skills_cont",
+        repo_id="b1k_2026_task51",
+        dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task51",
+        weight_params_path="/workspace/openpi_checkpoints/ft_task51_skills_9999/params",
+        episodes=list(range(10200, 10380)),
+        batch_size=16,
+        num_train_steps=15_000,
+        num_workers=16,
+        peak_lr=5e-5,
+        stage_labels="skills",
+    ),
+    # Tasks 8 rearranging_kitchen_furniture + 9 putting_up_Christmas_decorations_inside trained TOGETHER (user
+    # 2026-10-13: "train task 8,9 together with 50k steps"). Both are 2025 tasks covered by the winner's checkpoint_2
+    # specialist -> init from it, keep num_tasks=50. One dataset root holds chunk-008 + chunk-009; each sample's
+    # task_index (8 or 9) picks its task embedding. Skill annotations task-0008 + task-0009 pair by sorted order
+    # (200 + 200 files for episodes 1600-1999).
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task8_9",
+            repo_id="b1k_2026_task8_9",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task8_9",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params"),
+            episodes=list(range(8 * 200, 8 * 200 + 180)) + list(range(9 * 200, 9 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=50_000,
+            num_workers=16,
+            peak_lr=5e-5,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+    ),
+    # Tasks 7 picking_up_toys + 18 tidying_bedroom + 30 setting_the_fire trained together, 50k steps (user 2026-10-13,
+    # if the unchanged winner checkpoint_2 gate on 311-313 is not good). All three are checkpoint_2 tasks -> same recipe as 8+9.
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task7_18_30",
+            repo_id="b1k_2026_task7_18_30",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task7_18_30",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_2/params"),
+            episodes=[e for t in (7, 18, 30) for e in range(t * 200, t * 200 + 180)],
+            batch_size=16,
+            num_train_steps=50_000,
+            num_workers=16,
+            peak_lr=5e-5,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
+    ),
+    # Task 32 wash_a_baseball_cap, 50k steps (user 2026-10-13). 2025 task covered by the winner's checkpoint_3 specialist
+    # (winner q 0.45 public / 0.35 hidden, 30% full successes) -> init from it, keep num_tasks=50. B1K_INIT_PARAMS: local
+    # copy on geesefs pods (volume reads failed with RESOURCE_EXHAUSTED, task 68).
+    dataclasses.replace(
+        _pi_behavior_2026_config(
+            "pi_behavior_b1k_2026_task32",
+            repo_id="b1k_2026_task32",
+            dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task32",
+            weight_params_path=os.environ.get(
+                "B1K_INIT_PARAMS", "/workspace/openpi_checkpoints/winner_larchenko/checkpoint_3/params"),
+            episodes=list(range(32 * 200, 32 * 200 + 180)),
+            batch_size=16,
+            num_train_steps=50_000,
+            num_workers=16,
+            peak_lr=5e-5,
+            stage_labels="skills",
+        ),
+        model=dataclasses.replace(_PI_BEHAVIOR_2026_MODEL, num_tasks=pi_behavior_config.NUM_TASKS_2025),
     ),
     # 3more_tasks subset: 56 make_rose_centerpieces, 78 make_cabinet_doors, 99 sorting_books_on_shelf.
     _pi_behavior_2026_config(

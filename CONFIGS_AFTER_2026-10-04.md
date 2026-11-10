@@ -1,0 +1,70 @@
+# Configs for tasks trained after 2026-10-04
+
+The first push of this repo (`c68e527`, 2026-10-04) predates most of the runs that went into the submission. This
+commit adds them:
+
+- `behavior-1k-solution/src/b1k/training/config.py`: every PI_BEHAVIOR config used through the 10/16 deadline, plus the
+  loader support they need (`lerobot_v3.py`, `data_loader.py`: skill-annotation stage labels via `stage_labels="skills"`,
+  and skill-segment oversampling via `oversample_skills` / `oversample_factor`).
+- `patches/behavior-1k-solution.vs-ca556f7.diff`: regenerated against upstream.
+- `patches/openpi-pi05.wensi-ai.vs-0cc8e35.diff`: the plain openpi π0.5 configs (task 69), as a diff against
+  `wensi-ai/openpi@0cc8e35` (a different openpi from the winner's submodule).
+
+All PI_BEHAVIOR runs: batch 16, AdamW, params-only checkpoints, held-out demos = the last 20 of each task
+(episodes `task*200 .. task*200+179`). "ckptN" = `IliaLarchenko/behavior_submission` `checkpoint_N`; those inits keep
+the 50-task tables (`num_tasks=50`). Q = local self-eval on public instances 301-310, 1 rollout, sum / 10.
+
+## Rena's submitted tasks
+
+| Task | Submitted checkpoint (HF) | Config | Init | Steps (submitted step) | LR schedule | Stages / extras | Q |
+|---|---|---|---|---|---|---|---|
+| 4 can_meat | `Rena-Tian/b1k-2026-task4-ft1` | `pi_behavior_b1k_2026_task4_lowlr` | ckpt3 | 2,000 (1999) | cosine 5e-6 → 1e-6, warmup 100 | skills | 0.033 |
+| 8 rearranging_kitchen_furniture + 9 putting_up_Christmas_decorations_inside | `Rena-Tian/b1k-2026-task8-9-ft1` (one model, both tasks) | `pi_behavior_b1k_2026_task8_9` | ckpt2 | 50,000 (49999, picked by screening 20k/30k/40k/49999 on 311-315) | cosine peak 5e-5 (default warmup/decay) | skills; joint data from both tasks | 0.125 / 0.467 |
+| 14 carrying_in_groceries | `Rena-Tian/b1k-2026-task14-ft1` | `pi_behavior_b1k_2026_task14_lowlr` | ckpt1 | 2,000 (1999) | cosine 5e-6 → 1e-6, warmup 100 | skills | 0.250 |
+| 16 moving_boxes_to_storage | `Rena-Tian/b1k-2026-task16-ft1` | `pi_behavior_b1k_2026_task16_lowlr` | ckpt2 | 3,000 (2999) | cosine 5e-6 → 1e-6, warmup 100 | skills | 0.500 |
+| 21 collecting_childrens_toys | `Rena-Tian/b1k-2026-task21-ft1` | `pi_behavior_b1k_2026_task21_lowlr` | ckpt2 | 2,000 (1999) | cosine 5e-6 → 1e-6, warmup 100 | skills | 0.286 |
+| 26 assembling_gift_baskets | `Rena-Tian/b1k-2026-task26-ft1` | `pi_behavior_b1k_2026_task26` | ckpt2 | 10,000 (9999, screened vs 8000) | cosine peak 5e-5 | time stages (pre-10/11 run) | 0.269 |
+| 43 slicing_vegetables | `Rena-Tian/b1k-2026-task43-ft1` | `pi_behavior_b1k_2026_task43_skills` | ckpt2 | 20,000 (19999, screened) | cosine peak 5e-5 | skills | 0.122 |
+| 45 cook_hot_dogs | `Rena-Tian/b1k-2026-task45-ft1` | `pi_behavior_b1k_2026_task45` → `..._task45_r13k` → `..._task45_r13k5` | ckpt2 | 20,000 total (local 6499 of r13k5 = global 19999) | cosine peak 5e-5 → 5e-6 over 20k, run as warm restarts (see below) | skills | 0.600 |
+| 69 vacuuming_floors | `Rena-Tian/b1k-2026-task69-ft1` | openpi `pi05_b1k_3task_calib`, run `run1` | `pi05_base` (LoRA) | 50,000 (49999) — config says 30k, see below | cosine 2.5e-5 → 2.5e-6 over 30k, then flat 2.5e-6 | π0.5, prompt = task slug | 0.000 |
+
+Notes:
+
+- **4, 14, 21** come from one list comprehension (`for _t in (15, 25, 29, 23, 48, 4, 36, 37, 21, 24, 14, 46)`); the
+  init is chosen per task (`checkpoint_3` for 4/36/37/46, `checkpoint_2` for 21, `checkpoint_1` otherwise). Same recipe
+  as `task16_lowlr` but 2,000 steps instead of 3,000.
+- **16**: the low-LR run replaced the 5-task 10k run (`pi_behavior_b1k_2026_task7_16_18_30_43`, peak 5e-5), which dropped
+  task 16 from 0.60 (winner ckpt2 unchanged) to 0.25. `Rena-Tian/b1k-2026-task16-winner-checkpoint2` is only a mirror of
+  the unchanged winner weights, kept for reference; the submitted model is `task16-ft1`.
+- **26** is part of the 10/08 batch comprehension (`(26, "checkpoint_2", 10_000, 16)`) and is the one submitted run that
+  still used time-sliced stages. The factory default changed to `stage_labels="skills"` on 10/11, so to reproduce
+  this run exactly, pass `stage_labels="time"`.
+- **43**: the earlier `pi_behavior_b1k_2026_task43` (10k, time stages) scored 0 on screening; the submitted one is
+  `task43_skills` (20k, skill stages, same init).
+- **45**: the 20k run (`pi_behavior_b1k_2026_task45`) deadlocked in an orbax save at step 13500. Checkpoints are
+  params-only, so it was continued as new runs from saved params: `task45_r13k` from global 13000 (7,000 steps,
+  lr 1.784e-5 → 5e-6), which deadlocked again, then `task45_r13k5` from global 13500 (6,500 steps, warmup 50,
+  lr 1.773e-5 → 5e-6, `--save_interval=2500`). Both continue the original cosine curve, so the whole thing
+  approximates one 20k run. To reproduce, set `B1K_INIT_PARAMS` to the previous stage's params.
+- **69**: `pi05_b1k_3task_calib` trains one LoRA π0.5 (`gemma_2b_lora` + `gemma_300m_lora`, action horizon 32,
+  batch 96) on tasks 34/63/69 jointly, from `pi05_base`. The config sets `num_train_steps=30_000`; the run reached
+  29999 and was then resumed with
+  `train_b1k.py pi05_b1k_3task_calib --exp_name=run1 --resume --num_train_steps=50000`. The LR schedule was not
+  changed, and openpi's default `CosineDecaySchedule` decays over 30k steps, so steps 30k-50k ran flat at 2.5e-6.
+  The diff also renames the R1Pro robot to `robot_r1` / switches to the 2026 dataset camera keys, and registers
+  the task slugs as prompts. Both are needed to train and serve it.
+
+## Richard's tasks also in this config.py
+
+Several of Richard's tasks (7, 11, 15, 17, 18, 24, 25, 29, 30, 32, 64) were trained from configs in this same file, so
+those definitions are now pushed too. Richard still has to say which one each submitted checkpoint used:
+
+- 7: `task7_16_18_30_43`, `task7_18_30`, `task7_lowlr`, `task7_s500`
+- 11: `task11_13_15_17_25`, `task11_lowlr`
+- 15, 25: `task11_13_15_17_25`, `task15_lowlr` / `task25_lowlr`
+- 17: `task11_13_15_17_25`, `task17_lowlr`
+- 18, 30: `task7_16_18_30_43`, `task7_18_30`, `task18_lowlr` / `task30_lowlr` (oversampled skills), `task18_s500` / `task30_s500`
+- 24, 29: `task24_lowlr`, `task29_lowlr`
+- 32: `task32`
+- 64: `task64`, `task64_cont`
+- 54: no config in this file.

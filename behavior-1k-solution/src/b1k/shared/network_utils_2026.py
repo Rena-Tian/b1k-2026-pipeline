@@ -172,6 +172,10 @@ class WebsocketPolicyServer:
             compression=None,
             max_size=None,
             process_request=_health_check,
+            # same keepalive as the eval client: a CPU-throttled sim (RunPod quota) can answer pings late,
+            # and the default 20 s timeout dropped it mid-episode (2026-10-11, L40S eval pod)
+            ping_interval=60,
+            ping_timeout=900,
         ) as server:
             await server.serve_forever()
 

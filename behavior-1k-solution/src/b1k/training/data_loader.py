@@ -190,12 +190,23 @@ def transform_dataset(dataset: Dataset, data_config: _config.DataConfig, *, skip
             if data_config.dataset_format == "lerobot_v3":
                 from b1k.training import lerobot_v3
                 from b1k.training.episode_files import v3_episode_lengths
-                model_transforms.append(lerobot_v3.ComputeSubtaskStateV3(
-                    episode_lengths=v3_episode_lengths(data_config.behavior_dataset_root),
-                    task_id_map=data_config.task_id_map,
-                    fps=float(getattr(getattr(dataset, "meta", None), "fps", 30.0)),
-                ))
-                logging.info("Added ComputeSubtaskStateV3 transform (LeRobot v3 episode lengths)")
+                lengths = v3_episode_lengths(data_config.behavior_dataset_root)
+                fps = float(getattr(getattr(dataset, "meta", None), "fps", 30.0))
+                if data_config.stage_labels == "skills":
+                    model_transforms.append(lerobot_v3.ComputeSubtaskStateFromSkills(
+                        episode_lengths=lengths,
+                        task_id_map=data_config.task_id_map,
+                        skill_ends=lerobot_v3.load_skill_ends(data_config.behavior_dataset_root, lengths),
+                        fps=fps,
+                    ))
+                    logging.info("Added ComputeSubtaskStateFromSkills transform (skill-annotation stages)")
+                else:
+                    model_transforms.append(lerobot_v3.ComputeSubtaskStateV3(
+                        episode_lengths=lengths,
+                        task_id_map=data_config.task_id_map,
+                        fps=fps,
+                    ))
+                    logging.info("Added ComputeSubtaskStateV3 transform (LeRobot v3 episode lengths)")
             elif hasattr(dataset, 'meta') and hasattr(dataset.meta, 'episodes'):
                 model_transforms.append(b1k_transforms.ComputeSubtaskStateFromMeta(dataset=dataset))
                 logging.info("Added dataset-aware ComputeSubtaskStateFromMeta transform")
@@ -263,6 +274,10 @@ def create_behavior_data_loader(
         logging.info(f"Using random seed: {seed}")
     
     dataset = create_behavior_dataset(data_config, action_horizon=config.model.action_horizon, seed=seed)
+    if data_config.dataset_format == "lerobot_v3" and data_config.oversample_skills and data_config.oversample_factor > 1:
+        from b1k.training import lerobot_v3
+        dataset = lerobot_v3.oversample_skill_frames(
+            dataset, data_config.behavior_dataset_root, data_config.oversample_skills, data_config.oversample_factor)
     dataset = transform_dataset(dataset, data_config, skip_norm_stats=skip_norm_stats)
 
     data_loader = TorchDataLoader(

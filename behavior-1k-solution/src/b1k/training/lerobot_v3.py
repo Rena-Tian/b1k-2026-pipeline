@@ -138,6 +138,139 @@ class ComputeSubtaskStateV3(DataTransformFn):
         return data
 
 
+def _skill_span(frame_duration) -> tuple[int, int]:
+    """(start, end) of a skill. Some 2026 annotations (task 7) split one skill into segments [[a, b], [c, d]]:
+    span = first segment start .. last segment end."""
+    fd = frame_duration
+    if fd and isinstance(fd[0], (list, tuple)):
+        return int(fd[0][0]), int(fd[-1][1])
+    return int(fd[0]), int(fd[1])
+
+
+def load_skill_ends(data_root: str | Path, episode_lengths: dict[int, int], max_len_diff: float = 0.10) -> dict[int, tuple[int, ...]]:
+    """Sorted skill END frames per episode, from the demos' human skill annotations.
+
+    ``<root>/annotations/task-NNNN/episode_*.json`` (pulled with the dataset) carries one
+    ``skill_annotation`` list per demo ("move to", "open door", "pick up from", ... with frame
+    ranges). The files are not keyed by ``episode_index``; both sides are in the same order, so they
+    are paired by sorted order and each pair must agree on length (annotation ``task_duration``
+    within ``max_len_diff`` of the episode length, relative, min 20 frames). Annotations are often a
+    little shorter than the recording (trimmed tail): task 51 within 7 frames, task 49 up to 3.4%, task 34
+    up to 7.8%, never by much and nearly always shorter, which a mis-pairing would not look like. Episodes whose pairing or labels look
+    wrong (first skill starting after 20% of the demo, last one ending before 80%, < 2 skills) are
+    left out, and the caller falls back to the time rule for them.
+    """
+    import json
+
+    files = sorted(Path(data_root).glob("annotations/task-*/episode_*.json"))
+    episodes = sorted(episode_lengths)
+    if len(files) != len(episodes):
+        logger.warning(f"skill annotations: {len(files)} files for {len(episodes)} episodes; pairing by order anyway")
+    out: dict[int, tuple[int, ...]] = {}
+    for ep, f in zip(episodes, files):
+        d = json.loads(f.read_text())
+        length = episode_lengths[ep]
+        skills = d.get("skill_annotation") or []
+        if abs(length - int(d["meta_data"]["task_duration"])) > max(20, max_len_diff * length) or len(skills) < 2:
+            continue
+        starts = [_skill_span(s["frame_duration"])[0] for s in skills]
+        ends = sorted(_skill_span(s["frame_duration"])[1] for s in skills)
+        if min(starts) > 0.2 * length or ends[-1] < 0.8 * length:
+            continue
+        out[ep] = tuple(ends)
+    if not out:
+        logger.warning(f"skill annotations: NONE usable under {data_root}/annotations; every episode uses time stages")
+    else:
+        logger.info(f"skill annotations: usable for {len(out)}/{len(episodes)} episodes")
+    return out
+
+
+class _RepeatFrames:
+    """Index view over a dataset that lists some frames more than once (oversampling). Other attributes pass through."""
+
+    def __init__(self, base, index):
+        self._base = base
+        self._index = index
+
+    def __len__(self):
+        return len(self._index)
+
+    def __getitem__(self, i):
+        return self._base[int(self._index[i])]
+
+    def __getattr__(self, name):
+        # Same guard as below: DataLoader workers unpickle before __dict__ is restored -> no recursion.
+        if name in ("_base", "_index") or name.startswith("__"):
+            raise AttributeError(name)
+        return getattr(self._base, name)
+
+
+def oversample_skill_frames(dataset, data_root: str | Path, skills: tuple[str, ...], factor: int):
+    """Repeat every frame inside the named skill-annotation segments ``factor`` times in total.
+
+    Annotations are paired with episodes the same way as ``load_skill_ends`` (sorted order, length check).
+    """
+    import json
+
+    from b1k.training.episode_files import v3_episode_lengths
+
+    lengths = v3_episode_lengths(data_root)
+    files = sorted(Path(data_root).glob("annotations/task-*/episode_*.json"))
+    windows: dict[int, list[tuple[int, int]]] = {}
+    for ep, f in zip(sorted(lengths), files):
+        d = json.loads(f.read_text())
+        if abs(lengths[ep] - int(d["meta_data"]["task_duration"])) > max(20, 0.10 * lengths[ep]):
+            continue
+        w = [_skill_span(s["frame_duration"]) for s in d.get("skill_annotation") or []
+             if s["skill_description"] and s["skill_description"][0] in skills]
+        if w:
+            windows[ep] = w
+    cols = dataset.hf_dataset.select_columns(["episode_index", "frame_index"]).with_format("numpy")
+    ep_arr, fr_arr = np.asarray(cols["episode_index"]), np.asarray(cols["frame_index"])
+    assert len(ep_arr) == len(dataset), f"hf_dataset rows {len(ep_arr)} != dataset length {len(dataset)}"
+    hit = np.zeros(len(ep_arr), dtype=bool)
+    for ep, w in windows.items():
+        rows = np.flatnonzero(ep_arr == ep)
+        inside = np.zeros(len(rows), dtype=bool)
+        for a, b in w:
+            inside |= (fr_arr[rows] >= a) & (fr_arr[rows] <= b)
+        hit[rows[inside]] = True
+    index = np.concatenate([np.arange(len(dataset)), np.repeat(np.flatnonzero(hit), factor - 1)])
+    logger.info(f"oversample {skills} x{factor}: {int(hit.sum())}/{len(hit)} frames in {len(windows)} episodes "
+                f"-> {len(index)} samples per epoch")
+    return _RepeatFrames(dataset, index)
+
+
+@dataclasses.dataclass(frozen=True)
+class ComputeSubtaskStateFromSkills(DataTransformFn):
+    """Stage label from task progress instead of elapsed time.
+
+    stage = (skills finished so far) * num_stages // (skills in this demo), so stage boundaries fall on
+    real step boundaries ("brisket is out of the fridge") and keep the task's order, rather than on
+    equal time slices. Overlapping (bimanual) skills are fine: only end frames are counted. Episodes
+    without usable annotations use the time rule of ComputeSubtaskStateV3. The stage count per task is
+    unchanged, so checkpoints trained with the time rule load as-is.
+    """
+
+    episode_lengths: dict[int, int]
+    task_id_map: dict[int, int]
+    skill_ends: dict[int, tuple[int, ...]]
+    fps: float = 30.0
+
+    def __call__(self, data: DataDict) -> DataDict:
+        task_id = self.task_id_map[int(data["task_index"])]
+        num_stages = TASK_NUM_STAGES[task_id]
+        episode = int(data["episode_index"])
+        current_step = float(data["timestamp"]) * self.fps
+        ends = self.skill_ends.get(episode)
+        if ends is None:
+            stage = int(current_step / (self.episode_lengths[episode] / num_stages))
+        else:
+            stage = int(np.searchsorted(ends, current_step, side="right")) * num_stages // len(ends)
+        data["subtask_state"] = np.array(max(0, min(stage, num_stages - 1)), dtype=np.int32)
+        return data
+
+
 class _EpisodesByValue:
     """View over a LeRobot ``meta.episodes`` table that indexes by ``episode_index`` value.
 

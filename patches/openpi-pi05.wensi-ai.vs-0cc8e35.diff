@@ -1,0 +1,266 @@
+diff --git a/src/openpi/configs/robots/b1k.py b/src/openpi/configs/robots/b1k.py
+index 0fa8121..280a0b3 100644
+--- a/src/openpi/configs/robots/b1k.py
++++ b/src/openpi/configs/robots/b1k.py
+@@ -4,25 +4,29 @@ from .base_config import ObservationConfig, StateActionConfig, RobotConfig, regi
+ # R1Pro Robot Configuration
+ # Dual-arm mobile manipulator with base, torso, and multiple camera views
+ R1Pro = RobotConfig(
+-    name="robot",
++    # Must match the live OmniGibson robot instance name at eval time (omnigibson/eval/r1pro.yaml
++    # sets "name: robot_r1"), since env_base.get_obs() nests/flattens obs under this name
++    # (e.g. "robot_r1::proprio", "robot_r1::robot_r1:zed_link:Camera:0::rgb"). Unrelated to
++    # training, which reads from the LeRobot dataset's dataset_key columns instead.
++    name="robot_r1",
+     robot_type="R1Pro",
+     observations={
+         "image_0": ObservationConfig(
+             name="head",
+-            obs_key="robot::robot:zed_link:Camera:0::rgb",
+-            dataset_key="observation.rgb.zed_link_camera_0",
++            obs_key="robot_r1::robot_r1:zed_link:Camera:0::rgb",
++            dataset_key="observation.images.rgb.head",
+             resolution=[240, 240]
+         ),
+         "image_1": ObservationConfig(
+             name="left_wrist",
+-            obs_key="robot::robot:left_realsense_link:Camera:0::rgb",
+-            dataset_key="observation.rgb.left_realsense_link_camera_0",
++            obs_key="robot_r1::robot_r1:left_realsense_link:Camera:0::rgb",
++            dataset_key="observation.images.rgb.left_wrist",
+             resolution=[240, 240]
+         ),
+         "image_2": ObservationConfig(
+             name="right_wrist",
+-            obs_key="robot::robot:right_realsense_link:Camera:0::rgb",
+-            dataset_key="observation.rgb.right_realsense_link_camera_0",
++            obs_key="robot_r1::robot_r1:right_realsense_link:Camera:0::rgb",
++            dataset_key="observation.images.rgb.right_wrist",
+             resolution=[240, 240]
+         ),
+     },
+diff --git a/src/openpi/configs/tasks/b1k.py b/src/openpi/configs/tasks/b1k.py
+index 193c4e7..d8ed0ab 100644
+--- a/src/openpi/configs/tasks/b1k.py
++++ b/src/openpi/configs/tasks/b1k.py
+@@ -3,6 +3,18 @@ from . import TASK_REGISTRY
+ # i3l task prompts
+ TASKS = {
+     "turning_on_radio": "Turn on the radio receiver that's on the table in the living room.",
++    # These three use the task slug itself as the prompt (prompt_from_task=True at train time,
++    # matching pod1's registry exactly) for the pi05_b1k_3task_calib run -- NOT the descriptive
++    # sentence used for the earlier single-task hanging_pictures experiment.
++    "hanging_pictures": "hanging_pictures",
++    "installing_smoke_detectors": "installing_smoke_detectors",
++    "vacuuming_floors": "vacuuming_floors",
++    # Same slug-as-prompt convention, for the pi05_b1k_3more_tasks run (pod2).
++    "make_rose_centerpieces": "make_rose_centerpieces",
++    "make_cabinet_doors": "make_cabinet_doors",
++    "sorting_books_on_shelf": "sorting_books_on_shelf",
++    # Same slug-as-prompt convention, for the pi05_task89_lora run (pod3).
++    "installing_a_fax_machine": "installing_a_fax_machine",
+ }
+ 
+ # Register in global registry
+diff --git a/src/openpi/training/config.py b/src/openpi/training/config.py
+index ec6cd0f..91cd838 100644
+--- a/src/openpi/training/config.py
++++ b/src/openpi/training/config.py
+@@ -772,6 +772,111 @@ _CONFIGS = [
+         assets_base_dir="./outputs/assets",
+         checkpoint_base_dir="./outputs/checkpoints",
+     ),
++    TrainConfig(
++        name="pi05_b1k_hanging_pictures",
++        # Single 12GB laptop GPU can't hold a full pi05 fine-tune (~2.3B params + Adam states),
++        # so use LoRA variants here, matching the pi0_libero_low_mem_finetune pattern below.
++        model=pi0_config.Pi0Config(
++            action_horizon=32, pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
++        ),
++        data=LeRobotB1KDataConfig(
++            repo_id="hanging_pictures",
++            base_config=DataConfig(
++                data_cls=_lerobot_compat.LeRobotDataset,
++                dataset_root="/home/rena/behavior-challenge-2026/datasets/hanging_pictures",
++                prompt_from_task=True,
++                # This dataset's per-camera timestamps drift from the nominal 30fps grid over the
++                # course of an episode (growing offset, not fixed dropped frames), which violates the
++                # tighter 5e-4 tolerance used elsewhere in this file.
++                dataset_kwargs={"tolerance_s": 0.5},
++            ),
++            robot_config_name="b1k/R1Pro",
++        ),
++        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
++        freeze_filter=pi0_config.Pi0Config(
++            action_horizon=32, pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
++        ).get_freeze_filter(),
++        ema_decay=None,
++        save_interval=10_000,
++        num_train_steps=50_000,
++        assets_base_dir="./outputs/assets",
++        checkpoint_base_dir="./outputs/checkpoints",
++    ),
++    TrainConfig(
++        name="pi05_b1k_3task_calib",
++        # 3-task calibration/validation run on a single A100 (80GB) RunPod pod, ahead of scaling to
++        # the full 25-task living_room set. Tasks: hanging_pictures (chunk-034), installing_smoke_detectors
++        # (chunk-063), vacuuming_floors (chunk-069) -- all pulled from behavior-1k/2026-challenge-demos into
++        # one local dataset_root so this uses a single repo_id/root (LeRobot v3 multi-chunk read), not the
++        # untested repo_id-list/MultiLeRobotDataset path.
++        model=pi0_config.Pi0Config(
++            action_horizon=32, pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
++        ),
++        data=LeRobotB1KDataConfig(
++            repo_id="b1k_3task_calib",
++            base_config=DataConfig(
++                data_cls=_lerobot_compat.LeRobotDataset,
++                dataset_root="/workspace/behavior-challenge-2026/datasets/3task_calib",
++                prompt_from_task=True,
++                # hanging_pictures needed a loosened tolerance for per-camera timestamp drift; carrying the
++                # same setting here since these chunks come from the same collection pipeline. Verify it's
++                # still needed once norm stats run against the combined 3-task data.
++                dataset_kwargs={"tolerance_s": 0.5},
++            ),
++            robot_config_name="b1k/R1Pro",
++        ),
++        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
++        freeze_filter=pi0_config.Pi0Config(
++            action_horizon=32, pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
++        ).get_freeze_filter(),
++        ema_decay=None,
++        # Sized for the actual rented pod: A100 PCIe 80GB / 117GB RAM / 31 vCPU. LoRA needs ~22.5GB at
++        # batch_size=32, so there's plenty of headroom -- start the calibration ramp here and raise
++        # further via --batch_size once nvidia-smi confirms more fits.
++        batch_size=96,
++        # 31 vCPUs available; leave a handful free for the main process/JAX dispatch rather than
++        # saturating all of them (override with --num_workers if decode still bottlenecks the GPU).
++        num_workers=24,
++        # Checkpoint more often than the 10_000-step default so a Community Cloud interruption doesn't
++        # lose hours of progress; --resume picks back up from the latest.
++        save_interval=2_000,
++        num_train_steps=30_000,
++        # Relative paths here resolve under the openpi checkout, which lives on the pod's ephemeral
++        # Container Disk -- a pod reset (interruption/restart) wipes it, checkpoint included. Pointing
++        # these at the persistent volume means a reset only costs the environment install, not progress.
++        assets_base_dir="/workspace/openpi_outputs/assets",
++        checkpoint_base_dir="/workspace/openpi_outputs/checkpoints",
++    ),
++    TrainConfig(
++        name="pi05_b1k_3more_tasks",
++        # Second 3-task calibration run (pod2), trained in parallel with pi05_b1k_3task_calib.
++        # Tasks: make_rose_centerpieces (chunk-056), make_cabinet_doors (chunk-078),
++        # sorting_books_on_shelf (chunk-099).
++        model=pi0_config.Pi0Config(
++            action_horizon=32, pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
++        ),
++        data=LeRobotB1KDataConfig(
++            repo_id="b1k_3more_tasks",
++            base_config=DataConfig(
++                data_cls=_lerobot_compat.LeRobotDataset,
++                dataset_root="/workspace/behavior-challenge-2026/datasets/3more_tasks",
++                prompt_from_task=True,
++                dataset_kwargs={"tolerance_s": 0.5},
++            ),
++            robot_config_name="b1k/R1Pro",
++        ),
++        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
++        freeze_filter=pi0_config.Pi0Config(
++            action_horizon=32, pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
++        ).get_freeze_filter(),
++        ema_decay=None,
++        batch_size=96,
++        num_workers=24,
++        save_interval=2_000,
++        num_train_steps=30_000,
++        assets_base_dir="/workspace/openpi_outputs/assets",
++        checkpoint_base_dir="/workspace/openpi_outputs/checkpoints",
++    ),
+     #
+     # Fine-tuning Libero configs.
+     #
+@@ -1106,6 +1211,32 @@ if len({config.name for config in _CONFIGS}) != len(_CONFIGS):
+     raise ValueError("Config names must be unique.")
+ _CONFIGS_DICT = {config.name: config for config in _CONFIGS}
+ 
++# Dedicated task-89 pilot (installing_a_fax_machine), reconstructed from pod3's
++# separate openpi-task89 repo for local eval serving. Training-only fields
++# (dataset_root, assets_base_dir, checkpoint_base_dir, weight_loader) point at
++# remote paths that don't exist here -- harmless for serve_b1k.py, which loads
++# norm stats and params directly from the checkpoint dir passed via --policy.dir.
++_task89_base = _CONFIGS_DICT["pi05_b1k"]
++_task89_model = pi0_config.Pi0Config(pi05=True, action_horizon=32,
++    paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora")
++_task89_data = dataclasses.replace(_task89_base.data,
++    repo_id="installing_a_fax_machine",
++    base_config=dataclasses.replace(_task89_base.data.base_config,
++        dataset_root="/workspace/behavior-challenge-2026/datasets/task89",
++        dataset_kwargs={"tolerance_s": 0.5, "episodes": list(range(17800, 17980))}))
++_task89_config = dataclasses.replace(_task89_base, name="pi05_task89_lora",
++    model=_task89_model, data=_task89_data,
++    freeze_filter=_task89_model.get_freeze_filter(), ema_decay=None,
++    batch_size=32, num_workers=8, num_train_steps=5000, save_interval=1000,
++    wandb_enabled=False,
++    assets_base_dir="/workspace/task89/assets",
++    checkpoint_base_dir="/workspace/task89/checkpoints",
++    weight_loader=weight_loaders.CheckpointWeightLoader(
++        "/workspace/.cache/openpi/openpi-assets/checkpoints/pi05_base/params"))
++_CONFIGS.append(_task89_config)
++_CONFIGS_DICT[_task89_config.name] = _task89_config
++from openpi.training import task89_dataset as _task89_dataset  # noqa: E402
++
+ 
+ def cli() -> TrainConfig:
+     return tyro.extras.overridable_config_cli({k: (k, v) for k, v in _CONFIGS_DICT.items()})
+diff --git a/src/openpi/training/task89_dataset.py b/src/openpi/training/task89_dataset.py
+new file mode 100644
+index 0000000..98d6935
+--- /dev/null
++++ b/src/openpi/training/task89_dataset.py
+@@ -0,0 +1,47 @@
++"""Read a downloaded task subset using its original global episode IDs."""
++from pathlib import Path
++import lerobot.datasets.dataset_metadata as metadata
++
++class EpisodeIndexView:
++    def __init__(self, dataset):
++        self.dataset = dataset
++        self.by_id = {int(row['episode_index']): row for row in dataset}
++    def __getitem__(self, key):
++        if isinstance(key, int):
++            if key < 0:
++                return self.dataset[key]
++            # Fall back to positional lookup for datasets that aren't keyed by
++            # original global episode IDs (e.g. a standalone single-task dataset
++            # renumbered from 0) -- by_id is only required for task89-style
++            # subsets pulled out of a larger combined dataset.
++            return self.by_id[key] if key in self.by_id else self.dataset[key]
++        return self.dataset[key]
++    def __len__(self):
++        return len(self.dataset)
++    def __iter__(self):
++        return iter(self.dataset)
++    def __getattr__(self, key):
++        if key in ('dataset', 'by_id'):
++            raise AttributeError(key)
++        return getattr(self.dataset, key)
++
++_original_load = metadata.load_episodes
++
++def load_episodes(root):
++    return EpisodeIndexView(_original_load(root))
++
++def data_path(self, ep_index):
++    if self.episodes is None:
++        self.episodes = load_episodes(self.root)
++    ep = self.episodes[ep_index]
++    return Path(self.data_path.format(chunk_index=ep['data/chunk_index'], file_index=ep['data/file_index']))
++
++def video_path(self, ep_index, vid_key):
++    if self.episodes is None:
++        self.episodes = load_episodes(self.root)
++    ep = self.episodes[ep_index]
++    return Path(self.video_path.format(video_key=vid_key, chunk_index=ep[f'videos/{vid_key}/chunk_index'], file_index=ep[f'videos/{vid_key}/file_index']))
++
++metadata.load_episodes = load_episodes
++metadata.LeRobotDatasetMetadata.get_data_file_path = data_path
++metadata.LeRobotDatasetMetadata.get_video_file_path = video_path

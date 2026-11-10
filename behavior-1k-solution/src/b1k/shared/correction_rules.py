@@ -71,6 +71,21 @@ MIN_STAGE_FOR_CLOSURE = {
 # Tasks where right gripper is ALWAYS allowed to close (exceptions)
 RIGHT_GRIPPER_ALWAYS_ALLOWED = {38, 39}  # spraying_for_bugs, spraying_fruit_trees
 
+# Opt-in gripper recovery for 2026 tasks the winner never listed (ids >= 50, e.g. 68): comma-separated task ids in
+# B1K_GRIPPER_RECOVERY_TASKS get the always-open rule on both grippers (reopen a gripper that closed on nothing).
+# Off by default so existing evals are unchanged (2026-10-12).
+import os as _os
+for _t in filter(None, _os.environ.get("B1K_GRIPPER_RECOVERY_TASKS", "").split(",")):
+    ALWAYS_OPEN_LEFT_GRIPPER_TASKS.add(int(_t)); ALWAYS_OPEN_RIGHT_GRIPPER_TASKS.add(int(_t))
+
+# Opt-in gentle arms for early stages (2026-10-12, task 68): in the listed tasks, while stage <= B1K_ARM_SLOW_MAX_STAGE,
+# each predicted arm target is pulled toward the current arm position by B1K_ARM_SLOW_FACTOR, so the arm covers only
+# that fraction of the way per chunk. Task-68 videos showed the policy tipping the wheelie bin while opening its lid
+# (stages 0-1). Base, torso and grippers are untouched. Off by default.
+ARM_SLOW_TASKS = {int(_t) for _t in filter(None, _os.environ.get("B1K_ARM_SLOW_TASKS", "").split(","))}
+ARM_SLOW_MAX_STAGE = int(_os.environ.get("B1K_ARM_SLOW_MAX_STAGE", "1"))
+ARM_SLOW_FACTOR = float(_os.environ.get("B1K_ARM_SLOW_FACTOR", "0.5"))
+
 
 # ============================================================================
 # CORRECTION RULES - ADD NEW RULES HERE
@@ -276,6 +291,26 @@ def apply_correction_rules(
     Returns:
         (actions, stage) - corrected or original if no rule applies
     """
+    actions, stage = _apply_first_matching_rule(task_id, stage, state, actions)
+    if task_id in ARM_SLOW_TASKS and stage <= ARM_SLOW_MAX_STAGE:
+        actions = slow_arms(state, actions, ARM_SLOW_FACTOR)
+    return actions, stage
+
+
+def slow_arms(state: np.ndarray, actions: np.ndarray, factor: float) -> np.ndarray:
+    """Scale every arm-joint target's offset from the current arm position by ``factor`` (0 < factor <= 1)."""
+    out = np.array(actions, copy=True)
+    for lo, hi in ((LEFT_ARM_START_IDX, LEFT_ARM_END_IDX), (RIGHT_ARM_START_IDX, RIGHT_ARM_END_IDX)):
+        out[:, lo:hi] = state[lo:hi] + factor * (out[:, lo:hi] - state[lo:hi])
+    return out
+
+
+def _apply_first_matching_rule(
+    task_id: int,
+    stage: int,
+    state: np.ndarray,
+    actions: np.ndarray
+) -> Tuple[np.ndarray, int]:
     # Try task-specific rules first
     task_specific_rules = TASK_SPECIFIC_RULES.get(task_id, [])
     for rule in task_specific_rules:
@@ -283,14 +318,14 @@ def apply_correction_rules(
         if result is not None:
             corrected_actions, corrected_stage = result
             return corrected_actions, corrected_stage
-    
+
     # Try general rules (apply to all tasks)
     for rule in GENERAL_RULES:
         result = rule(task_id, stage, state, actions)
         if result is not None:
             corrected_actions, corrected_stage = result
             return corrected_actions, corrected_stage
-    
+
     # No rules matched, return original
     return actions, stage
 
