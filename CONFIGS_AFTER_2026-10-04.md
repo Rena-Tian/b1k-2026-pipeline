@@ -54,17 +54,34 @@ Notes:
   The diff also renames the R1Pro robot to `robot_r1` / switches to the 2026 dataset camera keys, and registers
   the task slugs as prompts. Both are needed to train and serve it.
 
-## Richard's tasks also in this config.py
+## Richard's submitted tasks
 
-Several of Richard's tasks (7, 11, 15, 17, 18, 24, 25, 29, 30, 32, 64) were trained from configs in this same file, so
-those definitions are now pushed too. Richard still has to say which one each submitted checkpoint used:
+These were trained from configs in this same `config.py`. Config names come from the server logs of each task's
+official 301-310 eval; steps come from the submitted checkpoint. All HF repos are under `RichardCTian/`.
 
-- 7: `task7_16_18_30_43`, `task7_18_30`, `task7_lowlr`, `task7_s500`
-- 11: `task11_13_15_17_25`, `task11_lowlr`
-- 15, 25: `task11_13_15_17_25`, `task15_lowlr` / `task25_lowlr`
-- 17: `task11_13_15_17_25`, `task17_lowlr`
-- 18, 30: `task7_16_18_30_43`, `task7_18_30`, `task18_lowlr` / `task30_lowlr` (oversampled skills), `task18_s500` / `task30_s500`
-- 24, 29: `task24_lowlr`, `task29_lowlr`
-- 32: `task32`
-- 64: `task64`, `task64_cont`
-- 54: no config in this file.
+| Task | Submitted checkpoint (HF) | Config | Init | Steps (submitted step) | LR schedule | Stages / extras |
+|---|---|---|---|---|---|---|
+| 7 | `RichardCTian/b1k-2026-task7-ft1` | `pi_behavior_b1k_2026_task7_lowlr` | ckpt2 | 3,000 (2999) | cosine 5e-6 → 1e-6, warmup 100 | skills |
+| 11 | `RichardCTian/b1k-2026-task11-ft1` | `pi_behavior_b1k_2026_task11_lowlr` | ckpt1 | 3,000 (2999) | cosine 5e-6 → 1e-6, warmup 100 | skills |
+| 15 | `RichardCTian/b1k-2026-task15-ft1` | `pi_behavior_b1k_2026_task15_lowlr` | ckpt1 | 2,000 (1999) | cosine 5e-6 → 1e-6, warmup 100 | skills |
+| 17 | `RichardCTian/b1k-2026-task17-ft1` | `pi_behavior_b1k_2026_task17_lowlr` | ckpt2 | 2,000 (1999) | cosine 5e-6 → 1e-6, warmup 100 | skills |
+| 18 | `RichardCTian/b1k-2026-task18-ft1` | `pi_behavior_b1k_2026_task18_lowlr` | ckpt2 | 3,000 (2999) | cosine 5e-6 → 1e-6, warmup 100 | skills; hard skills oversampled x3 |
+| 24 | `RichardCTian/b1k-2026-task24-ft1` | `pi_behavior_b1k_2026_task24_lowlr` | ckpt1 | 2,000 (1999) | cosine 5e-6 → 1e-6, warmup 100 | skills |
+| 25 | `RichardCTian/b1k-2026-task25-ft1` | `pi_behavior_b1k_2026_task25_lowlr` | ckpt1 | 2,000 (1999) | cosine 5e-6 → 1e-6, warmup 100 | skills |
+| 29 | `RichardCTian/b1k-2026-task29-ft1` | `pi_behavior_b1k_2026_task29_lowlr` | ckpt1 | 2,000 (1999) | cosine 5e-6 → 1e-6, warmup 100 | skills |
+| 30 | `RichardCTian/b1k-2026-task30-ft1` | `pi_behavior_b1k_2026_task30_lowlr` | ckpt2 | 3,000 (2999) | cosine 5e-6 → 1e-6, warmup 100 | skills; hard skills oversampled x3 |
+| 32 | `RichardCTian/b1k-2026-task32-ft1` | `pi_behavior_b1k_2026_task32` | ckpt3 | 50,000 (40000, picked by screening 20k/30k/40k on 311-315) | see config | see config |
+| 64 | `RichardCTian/b1k-2026-task64-ft1` | `pi_behavior_b1k_2026_task64` → `pi_behavior_b1k_2026_task64_cont` | 50t generalist | 20,000 + 30,000 (local 29999 of `task64_cont`) | see configs | 100-task model |
+
+Notes:
+
+- **15, 24, 25, 29** come from the same list comprehension as Rena's 4/14/21 (2,000 steps; init per task).
+- **18, 30** come from the oversampling comprehension: skill segments `pick up from` / `place on next to` / `place on`
+  (18) and `pick up from` / `turn on switch` / `ignite` / `turn off switch` (30) are repeated 3x.
+- **Not submitted**: the group runs `task7_16_18_30_43`, `task7_18_30` and `task11_13_15_17_25` and the `_s500` runs
+  all scored 0 on their screens.
+- **32**: step 40000 had the best screen on 311-315 (mean 0.40, vs 0.10 at both 20000 and 30000), so the
+  submitted checkpoint is not the run's final step.
+- **64**: `task64` (20k from `IliaLarchenko/behavior_50t_checkpoint`) was continued for 30k steps by `task64_cont`
+  (`B1K_INIT_PARAMS` = `ft_task64/19999` params; norm stats and tokenizer from the 50t checkpoint).
+- **54**: no config in this file; trained on Richard's side. Richard to push it.
