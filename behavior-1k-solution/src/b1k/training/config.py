@@ -917,6 +917,20 @@ _CONFIGS += [
         num_workers=16,
         peak_lr=5e-5,
     ),
+    # Task 54 putting_away_toys (Richard's task; trained on his pod 2026-10-09, 8 inside goals, 11,297-step demo).
+    # Same recipe as task 64 at the time: 50t generalist init (the task tables are padded 50 -> 100), 10k steps,
+    # batch 16, peak lr 5e-5. Bootstrap: pipeline/bootstrap_task54_training.sh (exp ft1, ckpts 2000-9999).
+    _pi_behavior_2026_config(
+        "pi_behavior_b1k_2026_task54",
+        repo_id="b1k_2026_task54",
+        dataset_root=os.environ.get("B1K_DATASETS_ROOT", "/workspace/behavior-challenge-2026/datasets") + "/task54",
+        weight_params_path=_WINNER_CKPT_POD,
+        episodes=list(range(10800, 10980)),           # task 54 -> episodes 10800..10999; hold out the last 20
+        batch_size=16,
+        num_train_steps=10_000,
+        num_workers=16,
+        peak_lr=5e-5,
+    ),
     # Task 51 again with stage labels from the demos' skill annotations instead of time slices (user,
     # 2026-10-11: the time-sliced run scored 0 and its eval stage kept sliding back). Same recipe and
     # init otherwise, so the two runs compare directly.

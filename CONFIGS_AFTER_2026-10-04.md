@@ -84,4 +84,5 @@ Notes:
   submitted checkpoint is not the run's final step.
 - **64**: `task64` (20k from `IliaLarchenko/behavior_50t_checkpoint`) was continued for 30k steps by `task64_cont`
   (`B1K_INIT_PARAMS` = `ft_task64/19999` params; norm stats and tokenizer from the 50t checkpoint).
-- **54**: no config in this file; trained on Richard's side. Richard to push it.
+- **54**: `pi_behavior_b1k_2026_task54` (50t generalist init, 10,000 steps, batch 16, peak lr 5e-5, episodes
+  10800-10979), trained on Richard's pod 2026-10-09 with `pipeline/bootstrap_task54_training.sh` (exp `ft1`).
